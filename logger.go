@@ -16,17 +16,19 @@ type Config struct {
 }
 
 func New(cfg Config) (*zap.Logger, error) {
+	return newZapConfig(cfg).Build()
+}
+
+func newZapConfig(cfg Config) zap.Config {
 	zapCfg := zap.NewProductionConfig()
-	if cfg.Development {
-		zapCfg = zap.NewDevelopmentConfig()
-		zapCfg.Encoding = "json"
-	}
+	zapCfg.Development = cfg.Development
+	zapCfg.Encoding = "json"
 	zapCfg.Level = zap.NewAtomicLevelAt(ParseLevel(cfg.Level))
 	zapCfg.OutputPaths = []string{"stdout"}
 	zapCfg.ErrorOutputPaths = []string{"stderr"}
 	zapCfg.InitialFields = initialFields(cfg)
 
-	return zapCfg.Build()
+	return zapCfg
 }
 
 func MustNew(cfg Config) *zap.Logger {
