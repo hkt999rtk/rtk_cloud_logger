@@ -38,6 +38,13 @@ func Nop() *zap.Logger
 func ParseLevel(string) zapcore.Level
 func HTTPMiddleware(*zap.Logger) func(http.Handler) http.Handler
 func SanitizePath(string) string
+func NewMemoryStore() *MemoryStore
+func NewIngestServer(*MemoryStore, IngestServerConfig) *IngestServer
+func NewHTTPDelivery(endpoint, token string, client *http.Client) *HTTPDelivery
+func NewForwarder(ForwarderConfig) *Forwarder
+func NewFileCursorStore(path string) *FileCursorStore
+func NewDiskSpool(path string, maxRecords int) *DiskSpool
+func NewFileRecordSource(path string) *FileRecordSource
 ```
 
 `New` returns the configured root logger. `MustNew` panics on construction
@@ -149,6 +156,65 @@ Recommended Loki labels are low-cardinality values such as `env`, `host`,
 `service`, `unit`, `component`, and `level`. Do not use `device_id`, `user_id`,
 `org_id`, `request_id`, `operation_id`, raw `path`, or IP addresses as default
 labels.
+
+## Central Logging Backend
+
+The first central backend API is intentionally small and embeddable:
+
+- `LogEvent` is the normalized service-log record shape.
+- `MemoryStore` inserts events idempotently by `event_id` and supports queries
+  by time, env, service, host, unit, level, trace id, request id, operation id,
+  device id, org id, and user id.
+- `IngestServer` exposes `/healthz`, `/readyz`, `/v1/logs/ingest`, and
+  `/v1/logs/query`.
+- `IngestServerConfig.Token` enables deployment-provisioned bearer-token auth.
+  mTLS can be added at the deployment/server layer without changing event
+  shape.
+- Events are redacted before persistence. Sensitive fields such as auth
+  headers, tokens, cookies, passwords, credential-bearing DSNs, cloud
+  credentials, private keys, and certificate key material are stored as
+  `[REDACTED]`.
+
+Example ingest server:
+
+```go
+store := cloudlogger.NewMemoryStore()
+handler := cloudlogger.NewIngestServer(store, cloudlogger.IngestServerConfig{
+	Token: ingestToken,
+})
+
+server := &http.Server{
+	Addr:    "127.0.0.1:19090",
+	Handler: handler,
+}
+```
+
+## Forwarder
+
+The forwarder reads host log records, generates stable ids, persists cursor
+state, spools records on disk, retries delivery with backoff, and reports local
+status. Cursor advancement happens only after backend acknowledgement.
+
+Example wiring:
+
+```go
+forwarder := cloudlogger.NewForwarder(cloudlogger.ForwarderConfig{
+	Source:      cloudlogger.NewFileRecordSource("/var/log/rtk-cloud/records.jsonl"),
+	CursorStore: cloudlogger.NewFileCursorStore("/var/lib/rtk-cloud-logger/cursor.json"),
+	Spool:       cloudlogger.NewDiskSpool("/var/lib/rtk-cloud-logger/spool.jsonl", 10000),
+	Delivery:    cloudlogger.NewHTTPDelivery(ingestURL, ingestToken, nil),
+	MaxAttempts: 5,
+})
+
+if err := forwarder.ProcessOnce(context.Background()); err != nil {
+	status, _ := forwarder.StatusJSON()
+	_ = status
+}
+```
+
+When the logger backend is unavailable, the forwarder reports degraded status
+and keeps unacknowledged records in the bounded spool. Application services keep
+writing stdout/stderr logs and do not need to stop.
 
 ## Service Migration Checklist
 

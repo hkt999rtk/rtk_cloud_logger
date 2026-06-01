@@ -64,6 +64,15 @@ fields must not bypass redaction rules.
 The forwarder is a Go binary installed as a systemd service on every VM that
 runs RTK Cloud services.
 
+The package now provides the reusable forwarder primitives:
+
+- `JournalRecord` for normalized journald/file records
+- `FileRecordSource` for JSON-lines file/container handoff
+- `FileCursorStore` for cursor state under `/var/lib/rtk-cloud-logger/`
+- `DiskSpool` for bounded local retry state
+- `HTTPDelivery` for token-authenticated ingest API delivery
+- `Forwarder.Status` and `Forwarder.StatusJSON` for local readiness scripts
+
 Required behavior:
 
 - collect selected journald units with their `_BOOT_ID`, `_HOSTNAME`,
@@ -85,6 +94,17 @@ windows and must be handled by backend idempotency.
 Forwarders authenticate with a deployment-provisioned token or mTLS identity.
 The first implementation may use token auth; mTLS remains an accepted hardening
 path.
+
+The package now provides `IngestServer`, which exposes:
+
+- `GET /healthz`
+- `GET /readyz`
+- `POST /v1/logs/ingest`
+- `GET /v1/logs/query`
+
+`IngestServerConfig.Token` enables bearer token or `X-Logger-Token`
+authentication. Deployments that require mTLS should terminate or enforce mTLS
+at the server/TLS layer while preserving the same ingest/query contract.
 
 The ingest API must:
 
@@ -114,6 +134,10 @@ The backend must support operational queries for:
 
 High-cardinality fields may be indexed if the selected backend supports it, but
 they must not be treated as Loki-style low-cardinality labels by default.
+
+The in-package `MemoryStore` is the first storage implementation and test
+contract. It stores events idempotently by `event_id`, applies redaction before
+persistence, and supports the query dimensions listed above.
 
 ## Security
 

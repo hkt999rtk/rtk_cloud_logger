@@ -82,6 +82,21 @@ func ParseLevel(string) zapcore.Level
 Additional helpers may be added when they remove duplicated service code, but
 they must preserve typed zap fields.
 
+The central logging implementation also exposes backend/forwarder primitives:
+
+```go
+type LogEvent struct { /* central service log record */ }
+type LogQuery struct { /* supported query filters */ }
+
+func NewMemoryStore() *MemoryStore
+func NewIngestServer(*MemoryStore, IngestServerConfig) *IngestServer
+func NewHTTPDelivery(endpoint, token string, client *http.Client) *HTTPDelivery
+func NewForwarder(ForwarderConfig) *Forwarder
+func NewFileCursorStore(path string) *FileCursorStore
+func NewDiskSpool(path string, maxRecords int) *DiskSpool
+func NewFileRecordSource(path string) *FileRecordSource
+```
+
 ## Required Fields
 
 Every service log line should contain these fields after logger construction:
@@ -200,6 +215,62 @@ deployments must not use that adapter.
 Where a value is useful for correlation but sensitive, services should log a
 stable hash or redacted marker instead of the raw value.
 
+## Central Logging Backend
+
+The backend accepts one `LogEvent` per service log record. Required fields are:
+
+- `event_id`
+- `ts`
+- `level`
+- `msg`
+- `service`
+- `env`
+- `version`
+- `host`
+- `unit`
+- `source`
+
+The backend supports optional correlation fields:
+
+- `trace_id`
+- `request_id`
+- `operation_id`
+- `device_id`
+- `org_id`
+- `user_id`
+- `component`
+- `error_category`
+
+Ingest API behavior:
+
+- authenticate forwarders with deployment-provisioned bearer token or
+  `X-Logger-Token`; mTLS can be enforced by deployment TLS configuration
+- expose `/healthz`, `/readyz`, `/v1/logs/ingest`, and `/v1/logs/query`
+- validate required fields
+- redact sensitive values before persistence
+- insert idempotently by `event_id`
+- return per-record ingest status
+
+Query behavior must support filters for time range, `env`, `service`, `host`,
+`unit`, `level`, `trace_id`, `request_id`, `operation_id`, `device_id`,
+`org_id`, and `user_id`.
+
+## Forwarder Model
+
+The forwarder reads selected journald/file/container records, creates stable
+`event_id` values from `host_id + boot_id + unit + cursor`, persists cursor
+state, writes unacknowledged events to a bounded disk spool, retries delivery
+with backoff, and reports local status for readiness scripts.
+
+Forwarder requirements:
+
+- advance cursor only after backend acknowledgement
+- preserve unacknowledged events when the backend is unavailable
+- report cursor, last upload time, degraded status, spool count, dropped record
+  count, and last error
+- never require application services to stop when the logging backend is down
+- never delete journald data directly
+
 ## Deployment Model
 
 The expected production-like log architecture is:
@@ -208,20 +279,20 @@ The expected production-like log architecture is:
 Go services -> stdout/stderr -> journald or container logs
 nginx       -> access/error log files
 Docker      -> container logs
-agents      -> Loki-compatible backend
-Grafana     -> query and correlation with Prometheus metrics
+forwarder   -> rtk_cloud_logger ingest API
+backend     -> service-log storage/query
 ```
 
 Recommended deployment roles:
 
-- each application VM runs Vector, Grafana Alloy, or Fluent Bit as a log agent
-- a dedicated `logs` VM hosts Loki and optional Grafana
-- Loki is reachable only on the private network unless explicitly proxied
-- Grafana may be exposed through the edge gateway with authentication
+- each application VM runs the RTK Cloud logger forwarder
+- a dedicated logging service hosts ingest API and storage/query backend
+- ingest API is reachable only on the private network unless explicitly proxied
+- query UI/API may be exposed through the edge gateway with authentication
 - long retention should use object storage rather than only local disk
 
-This Go module must not push logs directly to Loki, CloudWatch, or any remote
-backend. Shipping is an infrastructure concern.
+Application code must not push logs directly to Loki, CloudWatch, or any remote
+backend. Remote service-log delivery is handled by the forwarder.
 
 ## Loki Label Guidance
 
