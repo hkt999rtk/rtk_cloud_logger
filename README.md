@@ -147,6 +147,8 @@ not push logs directly to the backend; the forwarder handles remote delivery.
 The detailed backend and forwarder handoff is documented in
 [`docs/CENTRAL_LOGGING_ARCHITECTURE.md`](docs/CENTRAL_LOGGING_ARCHITECTURE.md).
 The low-level package policy is documented in [`docs/SPEC.md`](docs/SPEC.md).
+The logger backend HTTP contract is documented in
+[`docs/openapi.yaml`](docs/openapi.yaml).
 
 Recommended Loki labels are low-cardinality values such as `env`, `host`,
 `service`, `unit`, `component`, and `level`. Do not use `device_id`, `user_id`,
