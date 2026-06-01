@@ -1,0 +1,348 @@
+openapi: 3.1.0
+info:
+  title: RTK Cloud Logger API
+  version: 0.1.0
+  description: >
+    HTTP API for the RTK Cloud central service logging backend. Application
+    services continue to emit logs to stdout/stderr; forwarders authenticate to
+    this API and deliver normalized service log events.
+servers:
+  - url: http://127.0.0.1:18090
+    description: Local development logger backend
+security:
+  - bearerAuth: []
+paths:
+  /healthz:
+    get:
+      summary: Health check
+      description: Reports whether the logger backend HTTP process is alive.
+      operationId: getHealth
+      security: []
+      responses:
+        "204":
+          description: Backend process is healthy.
+  /v1/logs/ingest:
+    post:
+      summary: Ingest service log events
+      description: >
+        Accepts a batch of normalized service log events from a forwarder.
+        Events are validated, redacted before persistence, and inserted
+        idempotently by `event_id`.
+      operationId: ingestLogs
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/IngestRequest"
+            examples:
+              singleEvent:
+                summary: Single journald event
+                value:
+                  events:
+                    - event_id: 6f8d9cf1b41e4f4aa1e76f0a7c6328e8b8dbd48c2d5724ecacda54f1e0f0d942
+                      ts: "2026-06-01T01:02:03Z"
+                      level: info
+                      msg: http request
+                      service: video-cloud-api
+                      env: staging
+                      version: v0.1.0
+                      host: api-1
+                      unit: video-cloud-api.service
+                      source: journald
+                      trace_id: trace-1
+                      request_id: request-1
+                      operation_id: operation-1
+                      device_id: device-1
+                      org_id: org-1
+                      user_id: user-1
+                      component: http
+                      fields:
+                        method: GET
+                        path: /v1/health
+                        status: 200
+                        duration_ms: 3.4
+      responses:
+        "202":
+          description: Batch was processed; inspect per-event result statuses.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IngestResponse"
+              examples:
+                acceptedAndDuplicate:
+                  value:
+                    results:
+                      - event_id: 6f8d9cf1b41e4f4aa1e76f0a7c6328e8b8dbd48c2d5724ecacda54f1e0f0d942
+                        status: accepted
+                      - event_id: 6f8d9cf1b41e4f4aa1e76f0a7c6328e8b8dbd48c2d5724ecacda54f1e0f0d942
+                        status: duplicate
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+  /v1/logs:
+    get:
+      summary: Query service log events
+      description: >
+        Returns stored service log events matching the provided filters.
+        High-cardinality identifiers remain query fields and are not default
+        Loki-style labels.
+      operationId: queryLogs
+      parameters:
+        - $ref: "#/components/parameters/Since"
+        - $ref: "#/components/parameters/Until"
+        - $ref: "#/components/parameters/Env"
+        - $ref: "#/components/parameters/Service"
+        - $ref: "#/components/parameters/Host"
+        - $ref: "#/components/parameters/Unit"
+        - $ref: "#/components/parameters/Level"
+        - $ref: "#/components/parameters/TraceID"
+        - $ref: "#/components/parameters/RequestID"
+        - $ref: "#/components/parameters/OperationID"
+        - $ref: "#/components/parameters/DeviceID"
+        - $ref: "#/components/parameters/OrgID"
+        - $ref: "#/components/parameters/UserID"
+      responses:
+        "200":
+          description: Matching log events.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/QueryResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: deployment-provisioned-token
+      description: >
+        Required when `IngestConfig.Token` is configured. The token value must
+        be sent as `Authorization: Bearer <token>`.
+  parameters:
+    Since:
+      name: since
+      in: query
+      description: Inclusive lower timestamp bound.
+      schema:
+        type: string
+        format: date-time
+    Until:
+      name: until
+      in: query
+      description: Inclusive upper timestamp bound.
+      schema:
+        type: string
+        format: date-time
+    Env:
+      name: env
+      in: query
+      schema:
+        type: string
+      example: staging
+    Service:
+      name: service
+      in: query
+      schema:
+        type: string
+      example: video-cloud-api
+    Host:
+      name: host
+      in: query
+      schema:
+        type: string
+      example: api-1
+    Unit:
+      name: unit
+      in: query
+      schema:
+        type: string
+      example: video-cloud-api.service
+    Level:
+      name: level
+      in: query
+      schema:
+        $ref: "#/components/schemas/LogLevel"
+    TraceID:
+      name: trace_id
+      in: query
+      schema:
+        type: string
+    RequestID:
+      name: request_id
+      in: query
+      schema:
+        type: string
+    OperationID:
+      name: operation_id
+      in: query
+      schema:
+        type: string
+    DeviceID:
+      name: device_id
+      in: query
+      schema:
+        type: string
+    OrgID:
+      name: org_id
+      in: query
+      schema:
+        type: string
+    UserID:
+      name: user_id
+      in: query
+      schema:
+        type: string
+  responses:
+    BadRequest:
+      description: Invalid request body.
+      content:
+        text/plain:
+          schema:
+            type: string
+          example: invalid json
+    Unauthorized:
+      description: Missing or invalid bearer token.
+      content:
+        text/plain:
+          schema:
+            type: string
+          example: unauthorized
+    MethodNotAllowed:
+      description: HTTP method is not supported for this endpoint.
+      content:
+        text/plain:
+          schema:
+            type: string
+          example: method not allowed
+    InternalServerError:
+      description: Backend query failed.
+      content:
+        text/plain:
+          schema:
+            type: string
+          example: query failed
+  schemas:
+    IngestRequest:
+      type: object
+      required:
+        - events
+      properties:
+        events:
+          type: array
+          items:
+            $ref: "#/components/schemas/LogEvent"
+    IngestResponse:
+      type: object
+      required:
+        - results
+      properties:
+        results:
+          type: array
+          items:
+            $ref: "#/components/schemas/IngestResult"
+    IngestResult:
+      type: object
+      required:
+        - event_id
+        - status
+      properties:
+        event_id:
+          type: string
+        status:
+          type: string
+          enum:
+            - accepted
+            - duplicate
+            - rejected
+        error:
+          type: string
+          description: Present when status is `rejected`.
+    QueryResponse:
+      type: object
+      required:
+        - events
+      properties:
+        events:
+          type: array
+          items:
+            $ref: "#/components/schemas/LogEvent"
+    LogEvent:
+      type: object
+      additionalProperties: false
+      required:
+        - event_id
+        - ts
+        - level
+        - msg
+        - service
+        - env
+        - version
+        - host
+        - unit
+        - source
+      properties:
+        event_id:
+          type: string
+          description: Stable id generated from host_id, boot_id, unit, and cursor.
+        ts:
+          type: string
+          format: date-time
+        level:
+          $ref: "#/components/schemas/LogLevel"
+        msg:
+          type: string
+          description: Stable event message.
+        service:
+          type: string
+        env:
+          type: string
+        version:
+          type: string
+        host:
+          type: string
+        unit:
+          type: string
+        source:
+          type: string
+          example: journald
+        trace_id:
+          type: string
+        request_id:
+          type: string
+        operation_id:
+          type: string
+        device_id:
+          type: string
+        org_id:
+          type: string
+        user_id:
+          type: string
+        component:
+          type: string
+        error_category:
+          type: string
+        fields:
+          type: object
+          additionalProperties: true
+          description: >
+            Extra service fields preserved after redaction. Sensitive field
+            values are stored as `[REDACTED]`.
+    LogLevel:
+      type: string
+      enum:
+        - debug
+        - info
+        - warn
+        - error
+        - dpanic
+        - panic
+        - fatal

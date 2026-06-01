@@ -101,6 +101,7 @@ The ingest API must:
 
 The reference handler exposes `POST /v1/logs/ingest`, `GET /v1/logs`, and
 `GET /healthz`.
+The HTTP contract is captured as OpenAPI 3.1 in [`openapi.yaml`](openapi.yaml).
 
 ## Storage And Query Requirements
 
