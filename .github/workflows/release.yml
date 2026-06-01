@@ -1,0 +1,158 @@
+name: Release Bundle
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version. Defaults to the git ref name or timestamped short SHA."
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  package:
+    name: Package release
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Select version
+        id: version
+        shell: bash
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          if [ -n "${INPUT_VERSION:-}" ]; then
+            version="$INPUT_VERSION"
+          elif [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            version="$GITHUB_REF_NAME"
+          else
+            version="ci-$(date -u +%Y%m%d-%H%M%S)-${GITHUB_SHA::12}"
+          fi
+          case "$version" in
+            *[!A-Za-z0-9._-]* | "" | .* | *..*)
+              echo "invalid version: use only letters, digits, dot, underscore, and dash" >&2
+              exit 1
+              ;;
+          esac
+          printf 'version=%s\n' "$version" >> "$GITHUB_OUTPUT"
+
+      - name: Run release validation
+        run: |
+          set -euxo pipefail
+          git diff --check
+          test -z "$(gofmt -l $(git ls-files '*.go'))"
+          go mod tidy -diff
+          go test ./...
+
+      - name: Build release bundle
+        shell: bash
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          artifact_name="rtk_cloud_logger"
+          bundle_root="dist/$artifact_name-$VERSION"
+          object_bundle="dist/$VERSION.tar.gz"
+          checksum="$object_bundle.sha256"
+          manifest="dist/$VERSION.object-manifest.json"
+
+          rm -rf dist
+          mkdir -p "$bundle_root"
+          git ls-files -z | tar --null -T - -cf - | tar -xf - -C "$bundle_root"
+          cat > "$bundle_root/release-manifest.json" <<EOF_MANIFEST
+          {
+            "artifact_name": "$artifact_name",
+            "created_at": "$(date -u '+%Y-%m-%dT%H:%M:%SZ')",
+            "distribution": "internal-artifact",
+            "repo": "$GITHUB_REPOSITORY",
+            "schema_version": 1,
+            "source_commit": "$GITHUB_SHA",
+            "version": "$VERSION"
+          }
+          EOF_MANIFEST
+
+          tar -czf "$object_bundle" -C dist "$artifact_name-$VERSION"
+          sha256="$(shasum -a 256 "$object_bundle" | awk '{print $1}')"
+          printf '%s  %s\n' "$sha256" "$VERSION.tar.gz" > "$checksum"
+          python3 - <<'PY' > "$manifest"
+          import json
+          import os
+          from datetime import datetime, timezone
+          from pathlib import Path
+
+          version = os.environ["VERSION"]
+          artifact_name = "rtk_cloud_logger"
+          checksum = Path(f"dist/{version}.tar.gz.sha256").read_text(encoding="utf-8").split()[0]
+          print(json.dumps({
+              "artifact_name": artifact_name,
+              "artifact_path": f"releases/{artifact_name}-{version}/{version}.tar.gz",
+              "bundle": f"{version}.tar.gz",
+              "checksum_path": f"releases/{artifact_name}-{version}/{version}.tar.gz.sha256",
+              "created_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+              "manifest_path": f"releases/{artifact_name}-{version}/manifest.json",
+              "repo": os.environ["GITHUB_REPOSITORY"],
+              "schema_version": 1,
+              "sha256": checksum,
+              "source_commit": os.environ["GITHUB_SHA"],
+              "version": version,
+          }, indent=2, sort_keys=True))
+          PY
+
+      - name: Upload release objects to Linode Object Storage
+        shell: bash
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.LINODE_OBJ_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.LINODE_OBJ_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: ${{ vars.LINODE_OBJ_REGION || secrets.LINODE_OBJ_REGION || 'us-sea' }}
+          AWS_EC2_METADATA_DISABLED: "true"
+          LINODE_OBJ_BUCKET: ${{ vars.LINODE_OBJ_BUCKET || secrets.LINODE_OBJ_BUCKET }}
+          LINODE_OBJ_ENDPOINT: ${{ vars.LINODE_OBJ_ENDPOINT || secrets.LINODE_OBJ_ENDPOINT }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          if ! command -v aws >/dev/null 2>&1; then
+            python3 -m venv "$RUNNER_TEMP/awscli-venv"
+            "$RUNNER_TEMP/awscli-venv/bin/python" -m pip install --upgrade pip awscli
+            export PATH="$RUNNER_TEMP/awscli-venv/bin:$PATH"
+          fi
+          test -n "$AWS_ACCESS_KEY_ID"
+          test -n "$AWS_SECRET_ACCESS_KEY"
+          test -n "$LINODE_OBJ_BUCKET"
+          test -n "$LINODE_OBJ_ENDPOINT"
+          prefix="releases/rtk_cloud_logger-$VERSION"
+          aws s3 cp "dist/$VERSION.tar.gz" "s3://$LINODE_OBJ_BUCKET/$prefix/$VERSION.tar.gz" --endpoint-url "$LINODE_OBJ_ENDPOINT" --only-show-errors
+          aws s3 cp "dist/$VERSION.tar.gz.sha256" "s3://$LINODE_OBJ_BUCKET/$prefix/$VERSION.tar.gz.sha256" --endpoint-url "$LINODE_OBJ_ENDPOINT" --only-show-errors
+          aws s3 cp "dist/$VERSION.object-manifest.json" "s3://$LINODE_OBJ_BUCKET/$prefix/manifest.json" --endpoint-url "$LINODE_OBJ_ENDPOINT" --only-show-errors
+
+      - name: Publish GitHub release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          assets=(
+            "dist/$VERSION.tar.gz"
+            "dist/$VERSION.tar.gz.sha256"
+            "dist/$VERSION.object-manifest.json"
+          )
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" "${assets[@]}" --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" "${assets[@]}" --generate-notes --title "$GITHUB_REF_NAME"
+          fi
