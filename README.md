@@ -38,6 +38,9 @@ func Nop() *zap.Logger
 func ParseLevel(string) zapcore.Level
 func HTTPMiddleware(*zap.Logger) func(http.Handler) http.Handler
 func SanitizePath(string) string
+func IngestHandler(EventStore, IngestConfig) http.Handler
+func NewForwarder(EventSource, EventSink, CursorStore, ForwarderConfig) *Forwarder
+func EventIDFromJournalMetadata(hostID, bootID, unit, cursor string) string
 ```
 
 `New` returns the configured root logger. `MustNew` panics on construction
@@ -149,6 +152,45 @@ Recommended Loki labels are low-cardinality values such as `env`, `host`,
 `service`, `unit`, `component`, and `level`. Do not use `device_id`, `user_id`,
 `org_id`, `request_id`, `operation_id`, raw `path`, or IP addresses as default
 labels.
+
+## Reference Backend And Forwarder
+
+The first implementation includes reference binaries for integration and
+provisioning work:
+
+```sh
+go run ./cmd/rtk-cloud-logger \
+  -addr :18090 \
+  -token "$RTK_CLOUD_LOGGER_TOKEN"
+```
+
+The reference backend exposes:
+
+- `POST /v1/logs/ingest`
+- `GET /v1/logs`
+- `GET /healthz`
+
+The in-process store is idempotent by `event_id` and supports query filters for
+time, environment, service, host, unit, level, trace id, request id, operation
+id, device id, organization id, and user id. It is a reference implementation
+for service integration and deployment wiring; production persistence can
+replace the `EventStore` interface.
+
+Forwarder example:
+
+```sh
+go run ./cmd/rtk-cloud-log-forwarder \
+  -endpoint http://127.0.0.1:18090/v1/logs/ingest \
+  -token "$RTK_CLOUD_LOGGER_TOKEN" \
+  -units rtk-account-manager.service,video_cloud-api.service \
+  -service account-manager \
+  -env staging \
+  -version "$VERSION"
+```
+
+The forwarder reads `journalctl -o json`, creates stable `event_id` values from
+host, boot id, systemd unit, and journal cursor, persists the cursor only after
+backend acknowledgement, and uses a bounded disk spool when upload fails.
 
 ## Service Migration Checklist
 
