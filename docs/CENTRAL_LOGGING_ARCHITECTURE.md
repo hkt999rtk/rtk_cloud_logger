@@ -28,6 +28,10 @@ the backend. Remote delivery is handled by the forwarder.
 | Ingest API | Authenticate forwarders, validate schema, dedupe by `event_id`, and write accepted records. |
 | Storage/query backend | Store service logs and support support/debug queries by time, service, host, unit, trace, request, operation, org, user, and device fields. |
 
+The current reference backend uses `MemoryEventStore` for integration testing
+and early provisioning. Production persistence should implement the same
+`EventStore` interface without changing service or forwarder contracts.
+
 ## Log Event Shape
 
 The backend should accept one event per service log record.
@@ -94,6 +98,9 @@ The ingest API must:
 - insert idempotently by `event_id`
 - return per-record status for partial batch failures
 - expose health and readiness endpoints
+
+The reference handler exposes `POST /v1/logs/ingest`, `GET /v1/logs`, and
+`GET /healthz`.
 
 ## Storage And Query Requirements
 

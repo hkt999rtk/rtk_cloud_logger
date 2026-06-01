@@ -77,6 +77,8 @@ func New(Config) (*zap.Logger, error)
 func MustNew(Config) *zap.Logger
 func Nop() *zap.Logger
 func ParseLevel(string) zapcore.Level
+func IngestHandler(EventStore, IngestConfig) http.Handler
+func NewForwarder(EventSource, EventSink, CursorStore, ForwarderConfig) *Forwarder
 ```
 
 Additional helpers may be added when they remove duplicated service code, but
