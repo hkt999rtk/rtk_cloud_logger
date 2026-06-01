@@ -1,11 +1,11 @@
 # RTK Cloud Logger
 
-Shared logging package for RTK cloud Go services.
+Shared logging package and central logging owner for RTK cloud Go services.
 
 This module owns the common zap logger configuration used by service and worker
-entrypoints across the RTK cloud repositories. It emits single-line JSON logs to
-stdout so deployment agents can collect service logs from journald, Docker, or
-file-based sinks.
+entrypoints across the RTK cloud repositories. It also owns the central logging
+architecture: journald forwarder, ingest API, storage/query backend contract,
+redaction policy, and operational runbook.
 
 ## Defaults
 
@@ -17,10 +17,9 @@ file-based sinks.
   `panic`, `fatal`
 - output: application logs to stdout, zap internal errors to stderr
 
-Applications should write logs to stdout/stderr only. Host or deployment agents
-collect logs from journald, container logs, nginx log files, or similar sources.
-This module does not push logs directly to Loki, CloudWatch, or any remote
-backend.
+Applications should write logs to stdout/stderr only. The `rtk_cloud_logger`
+forwarder collects logs from journald, container logs, nginx log files, or
+similar host-level sources and sends them to the logger backend.
 
 ## Public API
 
@@ -138,10 +137,13 @@ hash or a redacted marker rather than the raw value.
 
 ## Deployment Boundary
 
-This module owns application log formatting and shared Go helpers. It does not
-own business metrics, device runtime log persistence, service-specific audit
-databases, VM provisioning, Loki, Grafana, Vector, Alloy, Fluent Bit, or direct
-remote log shipping.
+This module owns application log formatting, shared Go helpers, the central
+logger backend contract, and the Go journald forwarder. Application services do
+not push logs directly to the backend; the forwarder handles remote delivery.
+
+The detailed backend and forwarder handoff is documented in
+[`docs/CENTRAL_LOGGING_ARCHITECTURE.md`](docs/CENTRAL_LOGGING_ARCHITECTURE.md).
+The low-level package policy is documented in [`docs/SPEC.md`](docs/SPEC.md).
 
 Recommended Loki labels are low-cardinality values such as `env`, `host`,
 `service`, `unit`, `component`, and `level`. Do not use `device_id`, `user_id`,
