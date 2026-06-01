@@ -3,12 +3,14 @@
 ## Purpose
 
 `rtk_cloud_logger` is the shared logging module for RTK cloud Go services and
-the source of truth for application log format policy.
+the source of truth for application log format policy, central service-log
+ingestion, and forwarder behavior.
 
 The module exists so service repositories do not each invent their own logger
 configuration, field names, redaction rules, or operational assumptions. It
-standardizes service log emission first; log collection and storage are handled
-by deployment tooling.
+standardizes service log emission first while also owning the central logger
+backend and journald forwarder contracts. Deployment tooling provisions those
+components and wires service hosts to them.
 
 ## Scope
 
@@ -19,8 +21,10 @@ This repository owns:
 - common logger construction helpers for server and worker entrypoints
 - HTTP request logging helper behavior for Go services
 - redaction policy for application-emitted logs
-- operator documentation for how services should emit logs for Loki-style
-  collection
+- Go journald/file forwarder behavior
+- ingest API contract and idempotent `event_id` handling
+- logger backend storage/query requirements
+- operator documentation for how services should emit, collect, and query logs
 
 This repository does not own:
 
@@ -28,9 +32,8 @@ This repository does not own:
 - device runtime log persistence; those remain device-originated diagnostic
   records owned by Video Cloud runtime log ingestion
 - service-specific audit databases
-- Loki, Grafana, Vector, Alloy, or VM provisioning implementation; deployment
-  repositories may consume this specification when configuring those systems
 - direct log shipping from application code
+- unrelated VM provisioning implementation outside the logger dependency shape
 
 Applications must write logs to stdout/stderr. Agents collect logs from
 journald, Docker, nginx files, or other host-level sources.
