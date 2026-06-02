@@ -33,3 +33,13 @@ jobs:
 
       - name: Run tests
         run: go test ./...
+
+      - name: Build Linux logger binaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist/bin
+          GOOS=linux GOARCH=amd64 go build -o dist/bin/rtk-cloud-logger ./cmd/rtk-cloud-logger
+          GOOS=linux GOARCH=amd64 go build -o dist/bin/rtk-cloud-log-forwarder ./cmd/rtk-cloud-log-forwarder
+          file dist/bin/rtk-cloud-logger | grep -q 'ELF 64-bit.*x86-64'
+          file dist/bin/rtk-cloud-log-forwarder | grep -q 'ELF 64-bit.*x86-64'
