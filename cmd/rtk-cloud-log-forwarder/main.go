@@ -18,6 +18,8 @@ func main() {
 	spoolDir := flag.String("spool-dir", "/var/lib/rtk-cloud-logger/spool", "bounded spool directory")
 	spoolBytes := flag.Int64("spool-max-bytes", 64*1024*1024, "maximum local spool bytes")
 	units := flag.String("units", os.Getenv("RTK_CLOUD_LOGGER_UNITS"), "comma-separated systemd units")
+	emqxDockerContainer := flag.String("emqx-docker-container", os.Getenv("RTK_CLOUD_LOGGER_EMQX_DOCKER_CONTAINER"), "EMQX Docker container to forward when broker verbose trace is enabled")
+	initialSince := flag.String("initial-since", firstNonEmpty(os.Getenv("RTK_CLOUD_LOGGER_INITIAL_SINCE"), "5m"), "initial source window when no cursor exists")
 	service := flag.String("service", os.Getenv("SERVICE"), "default service name")
 	env := flag.String("env", os.Getenv("ENV"), "default environment")
 	version := flag.String("version", os.Getenv("VERSION"), "default version")
@@ -29,13 +31,32 @@ func main() {
 	if *endpoint == "" {
 		log.Fatal("-endpoint or RTK_CLOUD_LOGGER_INGEST_URL is required")
 	}
-	source := cloudlogger.JournalctlSource{
-		Units: splitCSV(*units),
-		Config: cloudlogger.JournalParseConfig{
-			DefaultService: *service,
-			DefaultEnv:     *env,
-			DefaultVersion: *version,
-		},
+	var source cloudlogger.EventSource
+	if *emqxDockerContainer != "" {
+		source = cloudlogger.DockerLogsSource{
+			Container:    *emqxDockerContainer,
+			InitialSince: *initialSince,
+			Config: cloudlogger.DockerLogParseConfig{
+				Container:   *emqxDockerContainer,
+				Service:     firstNonEmpty(*service, "emqx-broker"),
+				Env:         *env,
+				Version:     firstNonEmpty(*version, "emqx"),
+				Host:        firstNonEmpty(os.Getenv("HOSTNAME"), "mqtt-host"),
+				Unit:        "emqx.service",
+				Source:      "emqx",
+				Component:   "mqtt-broker",
+				OperationID: "mqtt-broker-trace",
+			},
+		}
+	} else {
+		source = cloudlogger.JournalctlSource{
+			Units: splitCSV(*units),
+			Config: cloudlogger.JournalParseConfig{
+				DefaultService: *service,
+				DefaultEnv:     *env,
+				DefaultVersion: *version,
+			},
+		}
 	}
 	forwarder := cloudlogger.NewForwarder(
 		source,
@@ -65,4 +86,13 @@ func splitCSV(value string) []string {
 		}
 	}
 	return out
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
 }
