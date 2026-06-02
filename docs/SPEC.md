@@ -211,15 +211,18 @@ Go services -> stdout/stderr -> journald or container logs
 nginx       -> access/error log files
 Docker      -> container logs
 agents      -> Loki-compatible backend
-Grafana     -> query and correlation with Prometheus metrics
+Cloud Admin -> Loki query API for the v1 operator dashboard
 ```
 
 Recommended deployment roles:
 
 - each application VM runs Vector, Grafana Alloy, or Fluent Bit as a log agent
-- a dedicated `logs` VM hosts Loki and optional Grafana
+- a dedicated `logs` VM hosts Loki as the central log storage/query backend
 - Loki is reachable only on the private network unless explicitly proxied
-- Grafana may be exposed through the edge gateway with authentication
+- the v1 operator dashboard is implemented by Cloud Admin and queries Loki, or
+  a workspace/logger query adapter, from the private network
+- Grafana is optional and is not required for the v1 dashboard; if deployed in a
+  later profile, expose it only through the edge gateway with authentication
 - long retention should use object storage rather than only local disk
 
 This Go module must not push logs directly to Loki, CloudWatch, or any remote

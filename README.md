@@ -144,6 +144,12 @@ This module owns application log formatting, shared Go helpers, the central
 logger backend contract, and the Go journald forwarder. Application services do
 not push logs directly to the backend; the forwarder handles remote delivery.
 
+Production-like private-cloud deployments use Loki as the central log
+storage/query backend. The v1 operator dashboard does not require Grafana:
+Cloud Admin owns the UI and queries Loki, or a workspace/logger query adapter,
+over the private network. Grafana can be added later for an observability
+profile, but it is not part of the v1 dashboard requirement.
+
 The detailed backend and forwarder handoff is documented in
 [`docs/CENTRAL_LOGGING_ARCHITECTURE.md`](docs/CENTRAL_LOGGING_ARCHITECTURE.md).
 The low-level package policy is documented in [`docs/SPEC.md`](docs/SPEC.md).
@@ -176,7 +182,9 @@ The in-process store is idempotent by `event_id` and supports query filters for
 time, environment, service, host, unit, level, trace id, request id, operation
 id, device id, organization id, and user id. It is a reference implementation
 for service integration and deployment wiring; production persistence can
-replace the `EventStore` interface.
+replace the `EventStore` interface. Production-like private-cloud profiles
+should use Loki-backed persistence/query rather than the in-process reference
+store.
 
 Forwarder example:
 
