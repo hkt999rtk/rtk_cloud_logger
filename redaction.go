@@ -5,11 +5,30 @@ import "strings"
 const RedactedValue = "[REDACTED]"
 
 func RedactEvent(event LogEvent) LogEvent {
+	event.Message = RedactText(event.Message)
 	if len(event.Fields) == 0 {
 		return event
 	}
 	event.Fields = redactMap(event.Fields)
 	return event
+}
+
+func RedactText(value string) string {
+	lower := strings.ToLower(value)
+	for _, marker := range []string{
+		"authorization",
+		"bearer ",
+		"password",
+		"secret",
+		"token",
+		"private key",
+		"-----begin",
+	} {
+		if strings.Contains(lower, marker) {
+			return RedactedValue
+		}
+	}
+	return value
 }
 
 func redactMap(in map[string]any) map[string]any {
