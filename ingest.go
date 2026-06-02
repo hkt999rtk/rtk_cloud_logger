@@ -37,7 +37,13 @@ func IngestHandler(store EventStore, cfg IngestConfig) http.Handler {
 		store = NewMemoryEventStore()
 	}
 	mux := http.NewServeMux()
-	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
+	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
+		if checker, ok := store.(HealthChecker); ok {
+			if err := checker.Health(r.Context()); err != nil {
+				http.Error(w, "backend unavailable", http.StatusServiceUnavailable)
+				return
+			}
+		}
 		w.WriteHeader(http.StatusNoContent)
 	})
 	mux.HandleFunc("/v1/logs/ingest", func(w http.ResponseWriter, r *http.Request) {
