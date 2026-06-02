@@ -14,6 +14,10 @@ type EventStore interface {
 	QueryEvents(context.Context, EventQuery) ([]LogEvent, error)
 }
 
+type HealthChecker interface {
+	Health(context.Context) error
+}
+
 type MemoryEventStore struct {
 	mu     sync.Mutex
 	events map[string]LogEvent
