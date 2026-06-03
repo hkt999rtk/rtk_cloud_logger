@@ -126,6 +126,13 @@ Keep high-cardinality values such as device ids, user ids, organization ids,
 request ids, operation ids, raw paths, and IP addresses in log bodies. Do not
 promote them to default Loki labels.
 
+The journald forwarder parses JSON object `MESSAGE` payloads emitted by zap
+services. Known fields such as `trace_id`, `request_id`, `operation_id`,
+`device_id`, `org_id`, `user_id`, `component`, and `error_category` are promoted
+to the top-level `LogEvent` body so `/v1/logs` queries can match them. Other
+non-sensitive JSON fields, such as `method`, `path`, `status`, `duration_ms`,
+`remote_addr`, `caller_identity`, and `outcome`, remain in `fields`.
+
 ## Redaction
 
 Do not log authorization headers, bearer tokens, refresh tokens, account
