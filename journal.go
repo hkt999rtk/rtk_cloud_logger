@@ -95,32 +95,101 @@ func ParseJournalRecord(line []byte, cfg JournalParseConfig) (JournalRecord, err
 	bootID := stringField(raw, "_BOOT_ID")
 	host := firstNonEmpty(stringField(raw, "_HOSTNAME"), "unknown-host")
 	unit := firstNonEmpty(stringField(raw, "_SYSTEMD_UNIT"), stringField(raw, "SYSLOG_IDENTIFIER"), "unknown-unit")
-	service := firstNonEmpty(stringField(raw, "SERVICE"), cfg.DefaultService, unit)
-	env := firstNonEmpty(stringField(raw, "ENV"), cfg.DefaultEnv, "unknown")
-	version := firstNonEmpty(stringField(raw, "VERSION"), cfg.DefaultVersion, "unknown")
+	message := firstNonEmpty(stringField(raw, "MESSAGE"), "journal event")
+	messageFields := parseJournalMessageFields(message)
+	service := firstNonEmpty(messageStringField(messageFields, "service"), stringField(raw, "SERVICE"), cfg.DefaultService, unit)
+	env := firstNonEmpty(messageStringField(messageFields, "env"), stringField(raw, "ENV"), cfg.DefaultEnv, "unknown")
+	version := firstNonEmpty(messageStringField(messageFields, "version"), stringField(raw, "VERSION"), cfg.DefaultVersion, "unknown")
 	event := LogEvent{
-		EventID:     EventIDFromJournalMetadata(host, bootID, unit, cursor),
-		Time:        journalTime(raw),
-		Level:       journalLevel(stringField(raw, "PRIORITY")),
-		Message:     firstNonEmpty(stringField(raw, "MESSAGE"), "journal event"),
-		Service:     service,
-		Env:         env,
-		Version:     version,
-		Host:        host,
-		Unit:        unit,
-		Source:      "journald",
-		TraceID:     stringField(raw, "TRACE_ID"),
-		RequestID:   stringField(raw, "REQUEST_ID"),
-		OperationID: stringField(raw, "OPERATION_ID"),
-		DeviceID:    stringField(raw, "DEVICE_ID"),
-		OrgID:       stringField(raw, "ORG_ID"),
-		UserID:      stringField(raw, "USER_ID"),
-		Component:   stringField(raw, "COMPONENT"),
+		EventID:       EventIDFromJournalMetadata(host, bootID, unit, cursor),
+		Time:          journalTime(raw),
+		Level:         firstNonEmpty(messageStringField(messageFields, "level"), journalLevel(stringField(raw, "PRIORITY"))),
+		Message:       firstNonEmpty(messageStringField(messageFields, "msg"), message),
+		Service:       service,
+		Env:           env,
+		Version:       version,
+		Host:          host,
+		Unit:          unit,
+		Source:        "journald",
+		TraceID:       firstNonEmpty(messageStringField(messageFields, "trace_id"), stringField(raw, "TRACE_ID")),
+		RequestID:     firstNonEmpty(messageStringField(messageFields, "request_id"), stringField(raw, "REQUEST_ID")),
+		OperationID:   firstNonEmpty(messageStringField(messageFields, "operation_id"), stringField(raw, "OPERATION_ID")),
+		DeviceID:      firstNonEmpty(messageStringField(messageFields, "device_id"), stringField(raw, "DEVICE_ID")),
+		OrgID:         firstNonEmpty(messageStringField(messageFields, "org_id"), stringField(raw, "ORG_ID")),
+		UserID:        firstNonEmpty(messageStringField(messageFields, "user_id"), stringField(raw, "USER_ID")),
+		Component:     firstNonEmpty(messageStringField(messageFields, "component"), stringField(raw, "COMPONENT")),
+		ErrorCategory: messageStringField(messageFields, "error_category"),
+		Fields:        journalMessageExtraFields(messageFields),
 	}
+	event = RedactEvent(event)
 	if err := event.Validate(); err != nil {
 		return JournalRecord{}, fmt.Errorf("invalid journal event: %w", err)
 	}
 	return JournalRecord{Cursor: cursor, Event: event}, nil
+}
+
+func parseJournalMessageFields(message string) map[string]any {
+	message = strings.TrimSpace(message)
+	if message == "" || !strings.HasPrefix(message, "{") {
+		return nil
+	}
+	var fields map[string]any
+	if err := json.Unmarshal([]byte(message), &fields); err != nil {
+		return nil
+	}
+	return fields
+}
+
+func messageStringField(fields map[string]any, key string) string {
+	if len(fields) == 0 {
+		return ""
+	}
+	switch value := fields[key].(type) {
+	case string:
+		return strings.TrimSpace(value)
+	case float64:
+		return strconv.FormatInt(int64(value), 10)
+	default:
+		return ""
+	}
+}
+
+func journalMessageExtraFields(fields map[string]any) map[string]any {
+	if len(fields) == 0 {
+		return nil
+	}
+	out := map[string]any{}
+	for key, value := range fields {
+		if journalMessagePromotedField(key) {
+			continue
+		}
+		out[key] = value
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func journalMessagePromotedField(key string) bool {
+	switch strings.ToLower(strings.TrimSpace(key)) {
+	case "level",
+		"msg",
+		"service",
+		"env",
+		"version",
+		"trace_id",
+		"request_id",
+		"operation_id",
+		"device_id",
+		"org_id",
+		"user_id",
+		"component",
+		"error_category":
+		return true
+	default:
+		return false
+	}
 }
 
 func stringField(raw map[string]any, key string) string {

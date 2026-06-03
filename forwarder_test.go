@@ -85,6 +85,65 @@ func TestParseJournalRecordBuildsEvent(t *testing.T) {
 	}
 }
 
+func TestParseJournalRecordPromotesJSONMessageFields(t *testing.T) {
+	line := []byte(`{"__CURSOR":"s=json","_BOOT_ID":"boot-a","_HOSTNAME":"host-a","_SYSTEMD_UNIT":"video_cloud-certissuer.service","MESSAGE":"{\"level\":\"info\",\"msg\":\"certificate issued\",\"service\":\"certissuer\",\"env\":\"staging\",\"version\":\"release-1\",\"trace_id\":\"trace-json\",\"request_id\":\"20260603T123846Z-rtk-0001\",\"operation_id\":\"factory-enroll\",\"device_id\":\"rtk-0001\",\"org_id\":\"org-rtk\",\"user_id\":\"user-1\",\"component\":\"issuer\",\"error_category\":\"\",\"method\":\"POST\",\"path\":\"/v1/certificates/issue\",\"status\":200,\"duration_ms\":3.4,\"remote_addr\":\"10.42.1.5\",\"caller_identity\":\"factoryenroll\",\"outcome\":\"succeeded\"}","PRIORITY":"6","__REALTIME_TIMESTAMP":"1780297323000000"}`)
+	record, err := ParseJournalRecord(line, JournalParseConfig{DefaultService: "fallback", DefaultEnv: "dev", DefaultVersion: "dev"})
+	if err != nil {
+		t.Fatalf("ParseJournalRecord: %v", err)
+	}
+	event := record.Event
+	if event.Message != "certificate issued" || event.Service != "certissuer" || event.Env != "staging" || event.Version != "release-1" {
+		t.Fatalf("promoted basic fields = %+v", event)
+	}
+	if event.TraceID != "trace-json" || event.RequestID != "20260603T123846Z-rtk-0001" || event.OperationID != "factory-enroll" {
+		t.Fatalf("promoted request fields = %+v", event)
+	}
+	if event.DeviceID != "rtk-0001" || event.OrgID != "org-rtk" || event.UserID != "user-1" || event.Component != "issuer" {
+		t.Fatalf("promoted identity fields = %+v", event)
+	}
+	if event.Fields["method"] != "POST" || event.Fields["path"] != "/v1/certificates/issue" || event.Fields["status"] != float64(200) {
+		t.Fatalf("fields missing HTTP details: %+v", event.Fields)
+	}
+	if event.Fields["caller_identity"] != "factoryenroll" || event.Fields["outcome"] != "succeeded" {
+		t.Fatalf("fields missing certissuer details: %+v", event.Fields)
+	}
+}
+
+func TestParseJournalRecordKeepsUppercaseJournaldFallbackWhenJSONOmitFields(t *testing.T) {
+	line := []byte(`{"__CURSOR":"s=fallback","_BOOT_ID":"boot-a","_HOSTNAME":"host-a","_SYSTEMD_UNIT":"svc.service","MESSAGE":"{\"msg\":\"handled\"}","PRIORITY":"6","__REALTIME_TIMESTAMP":"1780297323000000","SERVICE":"svc","ENV":"staging","VERSION":"v1","TRACE_ID":"trace-uppercase","REQUEST_ID":"req-uppercase","OPERATION_ID":"op-uppercase","DEVICE_ID":"device-uppercase","ORG_ID":"org-uppercase","USER_ID":"user-uppercase","COMPONENT":"component-uppercase"}`)
+	record, err := ParseJournalRecord(line, JournalParseConfig{DefaultService: "fallback", DefaultEnv: "dev", DefaultVersion: "dev"})
+	if err != nil {
+		t.Fatalf("ParseJournalRecord: %v", err)
+	}
+	event := record.Event
+	if event.Message != "handled" {
+		t.Fatalf("message = %q, want handled", event.Message)
+	}
+	if event.TraceID != "trace-uppercase" || event.RequestID != "req-uppercase" || event.OperationID != "op-uppercase" {
+		t.Fatalf("uppercase request fallback fields = %+v", event)
+	}
+	if event.DeviceID != "device-uppercase" || event.OrgID != "org-uppercase" || event.UserID != "user-uppercase" || event.Component != "component-uppercase" {
+		t.Fatalf("uppercase identity fallback fields = %+v", event)
+	}
+}
+
+func TestParseJournalRecordRedactsSensitiveJSONMessageFields(t *testing.T) {
+	line := []byte(`{"__CURSOR":"s=redact","_BOOT_ID":"boot-a","_HOSTNAME":"host-a","_SYSTEMD_UNIT":"svc.service","MESSAGE":"{\"msg\":\"issued private key\",\"service\":\"svc\",\"env\":\"staging\",\"version\":\"v1\",\"request_id\":\"req-redact\",\"private_key_pem\":\"-----BEGIN EC PRIVATE KEY-----\\nsecret\\n-----END EC PRIVATE KEY-----\",\"access_token\":\"raw-token\",\"safe\":\"ok\"}","PRIORITY":"6","__REALTIME_TIMESTAMP":"1780297323000000"}`)
+	record, err := ParseJournalRecord(line, JournalParseConfig{DefaultService: "fallback", DefaultEnv: "dev", DefaultVersion: "dev"})
+	if err != nil {
+		t.Fatalf("ParseJournalRecord: %v", err)
+	}
+	if record.Event.Message != RedactedValue {
+		t.Fatalf("message = %q, want redacted", record.Event.Message)
+	}
+	if record.Event.Fields["private_key_pem"] != RedactedValue || record.Event.Fields["access_token"] != RedactedValue {
+		t.Fatalf("sensitive fields not redacted: %+v", record.Event.Fields)
+	}
+	if record.Event.Fields["safe"] != "ok" {
+		t.Fatalf("safe field = %v, want ok", record.Event.Fields["safe"])
+	}
+}
+
 func TestJournalctlSourceLimitsBatchAndUsesInitialSince(t *testing.T) {
 	dir := t.TempDir()
 	argsPath := filepath.Join(dir, "args.txt")

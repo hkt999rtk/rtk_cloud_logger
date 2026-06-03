@@ -123,6 +123,12 @@ The backend must support operational queries for:
 High-cardinality fields may be indexed if the selected backend supports it, but
 they must not be treated as Loki-style low-cardinality labels by default.
 
+The journald forwarder promotes known fields from JSON `MESSAGE` payloads into
+the top-level event body before ingest. This makes Account Manager, certissuer,
+factory enroll, and workspace readiness logs queryable by `request_id`,
+`device_id`, `org_id`, and related correlation fields even though those values
+remain out of Loki labels.
+
 ## Security
 
 Never store raw auth headers, bearer tokens, refresh tokens, cookies, passwords,

@@ -139,6 +139,26 @@ High-cardinality values such as `device_id`, `user_id`, `org_id`,
 `request_id`, paths with dynamic ids, IP addresses, and operation ids must stay
 in the log body and must not be promoted to Loki labels by default.
 
+## Journald JSON Message Promotion
+
+The forwarder must parse journald records whose `MESSAGE` value is a JSON
+object. It must promote known correlation fields from that JSON object into the
+top-level `LogEvent` body:
+
+- `trace_id`
+- `request_id`
+- `operation_id`
+- `device_id`
+- `org_id`
+- `user_id`
+- `component`
+- `error_category`
+
+The JSON `msg` value becomes the event message. Unknown non-sensitive fields
+remain in `fields` so support queries can inspect HTTP details and service
+outcomes without adding high-cardinality Loki labels. If `MESSAGE` is not JSON,
+the forwarder keeps the existing plain-text behavior.
+
 ## HTTP Request Logging
 
 HTTP middleware provided by or implemented according to this module should emit

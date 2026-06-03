@@ -96,6 +96,33 @@ func TestIngestHandlerQueriesByCorrelationFields(t *testing.T) {
 	}
 }
 
+func TestIngestHandlerQueriesPromotedJournalJSONCorrelationFields(t *testing.T) {
+	store := NewMemoryEventStore()
+	handler := IngestHandler(store, IngestConfig{Token: "secret"})
+	record, err := ParseJournalRecord([]byte(`{"__CURSOR":"s=query-json","_BOOT_ID":"boot-a","_HOSTNAME":"host-a","_SYSTEMD_UNIT":"video_cloud-certissuer.service","MESSAGE":"{\"msg\":\"certificate issued\",\"service\":\"certissuer\",\"env\":\"staging\",\"version\":\"release-1\",\"request_id\":\"20260603T123846Z-rtk-0001\",\"device_id\":\"rtk-0001\",\"operation_id\":\"factory-enroll\"}","PRIORITY":"6","__REALTIME_TIMESTAMP":"1780297323000000"}`), JournalParseConfig{})
+	if err != nil {
+		t.Fatalf("ParseJournalRecord: %v", err)
+	}
+	_ = postIngest(t, handler, "secret", IngestRequest{Events: []LogEvent{record.Event}})
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/logs?request_id=20260603T123846Z-rtk-0001&device_id=rtk-0001", nil)
+	req.Header.Set("Authorization", "Bearer secret")
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, req)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusOK)
+	}
+	var response struct {
+		Events []LogEvent `json:"events"`
+	}
+	if err := json.NewDecoder(recorder.Body).Decode(&response); err != nil {
+		t.Fatalf("decode query response: %v", err)
+	}
+	if len(response.Events) != 1 || response.Events[0].RequestID != "20260603T123846Z-rtk-0001" || response.Events[0].DeviceID != "rtk-0001" {
+		t.Fatalf("events = %+v, want promoted query match", response.Events)
+	}
+}
+
 func TestIngestHandlerRedactsSensitiveUnknownFields(t *testing.T) {
 	store := NewMemoryEventStore()
 	handler := IngestHandler(store, IngestConfig{Token: "secret"})
