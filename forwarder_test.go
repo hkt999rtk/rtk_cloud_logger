@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -82,6 +83,94 @@ func TestParseJournalRecordBuildsEvent(t *testing.T) {
 	if record.Event.TraceID != "trace-1" || record.Event.RequestID != "req-1" || record.Event.OperationID != "op-1" {
 		t.Fatalf("correlation fields = %+v", record.Event)
 	}
+}
+
+func TestJournalctlSourceLimitsBatchAndUsesInitialSince(t *testing.T) {
+	dir := t.TempDir()
+	argsPath := filepath.Join(dir, "args.txt")
+	journalctl := filepath.Join(dir, "journalctl")
+	script := "#!/usr/bin/env bash\nprintf '%s\\n' \"$*\" > " + shellPath(argsPath) + "\ncat <<'JSON'\n{\"__CURSOR\":\"s=abc\",\"_BOOT_ID\":\"boot-a\",\"_HOSTNAME\":\"host-a\",\"_SYSTEMD_UNIT\":\"svc.service\",\"MESSAGE\":\"started\",\"PRIORITY\":\"6\",\"__REALTIME_TIMESTAMP\":\"1780297323000000\"}\nJSON\n"
+	if err := os.WriteFile(journalctl, []byte(script), 0o755); err != nil {
+		t.Fatalf("write fake journalctl: %v", err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	source := JournalctlSource{Units: []string{"svc.service"}, InitialSince: "10 minutes ago"}
+	records, err := source.Read(context.Background(), "", 7)
+	if err != nil {
+		t.Fatalf("Read: %v", err)
+	}
+	if len(records) != 1 {
+		t.Fatalf("records = %d, want 1", len(records))
+	}
+	argsBytes, err := os.ReadFile(argsPath)
+	if err != nil {
+		t.Fatalf("read args: %v", err)
+	}
+	args := string(argsBytes)
+	for _, want := range []string{"-n 7", "--since 10 minutes ago", "-u svc.service"} {
+		if !strings.Contains(args, want) {
+			t.Fatalf("journalctl args %q missing %q", args, want)
+		}
+	}
+}
+
+func TestJournalctlSourceUsesAfterCursorInsteadOfInitialSince(t *testing.T) {
+	dir := t.TempDir()
+	argsPath := filepath.Join(dir, "args.txt")
+	journalctl := filepath.Join(dir, "journalctl")
+	script := "#!/usr/bin/env bash\nprintf '%s\\n' \"$*\" > " + shellPath(argsPath) + "\n"
+	if err := os.WriteFile(journalctl, []byte(script), 0o755); err != nil {
+		t.Fatalf("write fake journalctl: %v", err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	source := JournalctlSource{Units: []string{"svc.service"}, InitialSince: "10m"}
+	if _, err := source.Read(context.Background(), "cursor-1", 3); err != nil {
+		t.Fatalf("Read: %v", err)
+	}
+	argsBytes, err := os.ReadFile(argsPath)
+	if err != nil {
+		t.Fatalf("read args: %v", err)
+	}
+	args := string(argsBytes)
+	if !strings.Contains(args, "--after-cursor cursor-1") {
+		t.Fatalf("journalctl args %q missing after cursor", args)
+	}
+	if strings.Contains(args, "--since") {
+		t.Fatalf("journalctl args %q unexpectedly used --since with cursor", args)
+	}
+}
+
+func TestJournalctlSourceNormalizesDurationInitialSince(t *testing.T) {
+	dir := t.TempDir()
+	argsPath := filepath.Join(dir, "args.txt")
+	journalctl := filepath.Join(dir, "journalctl")
+	script := "#!/usr/bin/env bash\nprintf '%s\\n' \"$*\" > " + shellPath(argsPath) + "\n"
+	if err := os.WriteFile(journalctl, []byte(script), 0o755); err != nil {
+		t.Fatalf("write fake journalctl: %v", err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	source := JournalctlSource{Units: []string{"svc.service"}, InitialSince: "10m"}
+	if _, err := source.Read(context.Background(), "", 3); err != nil {
+		t.Fatalf("Read: %v", err)
+	}
+	argsBytes, err := os.ReadFile(argsPath)
+	if err != nil {
+		t.Fatalf("read args: %v", err)
+	}
+	args := string(argsBytes)
+	if strings.Contains(args, "--since 10m") {
+		t.Fatalf("journalctl args %q passed raw duration to --since", args)
+	}
+	if !strings.Contains(args, "--since ") {
+		t.Fatalf("journalctl args %q missing --since", args)
+	}
+}
+
+func shellPath(path string) string {
+	return "'" + strings.ReplaceAll(path, "'", "'\\''") + "'"
 }
 
 func TestFileSpoolFlushesQueuedEvents(t *testing.T) {
