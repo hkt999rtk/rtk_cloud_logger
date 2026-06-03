@@ -19,7 +19,7 @@ func main() {
 	spoolBytes := flag.Int64("spool-max-bytes", 64*1024*1024, "maximum local spool bytes")
 	units := flag.String("units", os.Getenv("RTK_CLOUD_LOGGER_UNITS"), "comma-separated systemd units")
 	emqxDockerContainer := flag.String("emqx-docker-container", os.Getenv("RTK_CLOUD_LOGGER_EMQX_DOCKER_CONTAINER"), "EMQX Docker container to forward when broker verbose trace is enabled")
-	initialSince := flag.String("initial-since", firstNonEmpty(os.Getenv("RTK_CLOUD_LOGGER_INITIAL_SINCE"), "5m"), "initial source window when no cursor exists")
+	initialSince := flag.String("initial-since", firstNonEmpty(os.Getenv("RTK_CLOUD_LOGGER_INITIAL_SINCE"), "5 minutes ago"), "initial source window when no cursor exists")
 	service := flag.String("service", os.Getenv("SERVICE"), "default service name")
 	env := flag.String("env", os.Getenv("ENV"), "default environment")
 	version := flag.String("version", os.Getenv("VERSION"), "default version")
@@ -50,7 +50,8 @@ func main() {
 		}
 	} else {
 		source = cloudlogger.JournalctlSource{
-			Units: splitCSV(*units),
+			Units:        splitCSV(*units),
+			InitialSince: *initialSince,
 			Config: cloudlogger.JournalParseConfig{
 				DefaultService: *service,
 				DefaultEnv:     *env,

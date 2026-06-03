@@ -19,14 +19,20 @@ type JournalParseConfig struct {
 }
 
 type JournalctlSource struct {
-	Units  []string
-	Config JournalParseConfig
+	Units        []string
+	InitialSince string
+	Config       JournalParseConfig
 }
 
 func (s JournalctlSource) Read(ctx context.Context, after string, limit int) ([]JournalRecord, error) {
 	args := []string{"-o", "json", "--no-pager"}
+	if limit > 0 {
+		args = append(args, "-n", strconv.Itoa(limit))
+	}
 	if after != "" {
 		args = append(args, "--after-cursor", after)
+	} else if since := journalSinceArg(s.InitialSince); since != "" {
+		args = append(args, "--since", since)
 	}
 	for _, unit := range s.Units {
 		args = append(args, "-u", unit)
@@ -48,6 +54,17 @@ func (s JournalctlSource) Read(ctx context.Context, after string, limit int) ([]
 		return nil, waitErr
 	}
 	return records, nil
+}
+
+func journalSinceArg(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	if duration, err := time.ParseDuration(value); err == nil {
+		return time.Now().UTC().Add(-duration).Format(time.RFC3339)
+	}
+	return value
 }
 
 func ParseJournalRecords(reader io.Reader, limit int, cfg JournalParseConfig) ([]JournalRecord, error) {
