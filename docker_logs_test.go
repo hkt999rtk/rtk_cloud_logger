@@ -60,3 +60,21 @@ func TestParseDockerLogRecordRedactsSensitiveLogLine(t *testing.T) {
 		t.Fatalf("log_line = %q, want redacted", got)
 	}
 }
+
+func TestParseDockerLogRecordRedactsPayloadOnlyLogLine(t *testing.T) {
+	record, err := ParseDockerLogRecord("2026-06-03T01:02:03Z [debug] action=publish topic=$vc/devices/a payload={\"private\":\"body\"}", DockerLogParseConfig{
+		Container: "video-cloud-emqx",
+		Service:   "emqx-broker",
+		Env:       "staging",
+		Version:   "emqx",
+		Host:      "mqtt-host",
+		Unit:      "emqx.service",
+		Source:    "emqx",
+	})
+	if err != nil {
+		t.Fatalf("ParseDockerLogRecord: %v", err)
+	}
+	if got := record.Event.Fields["log_line"]; got != RedactedValue {
+		t.Fatalf("log_line = %q, want redacted", got)
+	}
+}
