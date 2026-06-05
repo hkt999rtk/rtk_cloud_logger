@@ -1,8 +1,10 @@
 package cloudlogger
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/json"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -106,6 +108,22 @@ func TestHTTPMiddlewareDoesNotLogRequestBodyOrSensitiveHeaders(t *testing.T) {
 	}
 }
 
+func TestHTTPMiddlewarePreservesHijacker(t *testing.T) {
+	var out bytes.Buffer
+	logger, err := newForTest(Config{}, zapcore.AddSync(&out))
+	if err != nil {
+		t.Fatalf("New test logger: %v", err)
+	}
+
+	handler := HTTPMiddleware(logger)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		if _, ok := w.(http.Hijacker); !ok {
+			t.Fatal("wrapped response writer does not implement http.Hijacker")
+		}
+	}))
+
+	handler.ServeHTTP(hijackableRecorder{ResponseRecorder: httptest.NewRecorder()}, httptest.NewRequest(http.MethodGet, "/ws/device", nil))
+}
+
 func TestSanitizePathRedactsSensitiveQueryValues(t *testing.T) {
 	tests := map[string]string{
 		"/v1/devices":                     "/v1/devices",
@@ -148,4 +166,12 @@ func decodeHTTPLogEvent(t *testing.T, line []byte) map[string]any {
 		t.Fatalf("log output is not JSON: %v\n%s", err, string(line))
 	}
 	return event
+}
+
+type hijackableRecorder struct {
+	*httptest.ResponseRecorder
+}
+
+func (h hijackableRecorder) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	return nil, nil, nil
 }
