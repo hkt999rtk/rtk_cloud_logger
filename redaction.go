@@ -21,6 +21,7 @@ func RedactText(value string) string {
 		"password",
 		"secret",
 		"token",
+		"payload",
 		"private key",
 		"-----begin",
 	} {
@@ -58,6 +59,7 @@ func sensitiveFieldName(name string) bool {
 		"secret",
 		"dsn",
 		"credential",
+		"payload",
 		"private_key",
 		"client_key",
 		"access_key",
