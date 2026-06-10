@@ -21,6 +21,25 @@ paths:
       responses:
         "204":
           description: Backend process is healthy.
+  /metrics/prometheus:
+    get:
+      summary: Prometheus metrics
+      description: Exposes low-cardinality Cloud Logger backend metrics for private Prometheus scraping.
+      operationId: getPrometheusMetrics
+      security: []
+      responses:
+        "200":
+          description: Prometheus text exposition metrics.
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: |
+                  # HELP rtk_cloud_logger_up Whether the Cloud Logger backend is serving metrics.
+                  # TYPE rtk_cloud_logger_up gauge
+                  rtk_cloud_logger_up 1
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
   /v1/logs/ingest:
     post:
       summary: Ingest service log events
