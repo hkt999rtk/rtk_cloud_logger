@@ -46,6 +46,17 @@ func IngestHandler(store EventStore, cfg IngestConfig) http.Handler {
 		}
 		w.WriteHeader(http.StatusNoContent)
 	})
+	mux.HandleFunc("/metrics/prometheus", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		w.Header().Set("Content-Type", "text/plain; version=0.0.4")
+		_, _ = w.Write([]byte(`# HELP rtk_cloud_logger_up Whether the Cloud Logger backend is serving metrics.
+# TYPE rtk_cloud_logger_up gauge
+rtk_cloud_logger_up 1
+`))
+	})
 	mux.HandleFunc("/v1/logs/ingest", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)

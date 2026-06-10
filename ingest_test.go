@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 )
@@ -52,6 +53,28 @@ func TestIngestHandlerRejectsUnauthenticatedRequests(t *testing.T) {
 	response := postIngest(t, handler, "wrong", IngestRequest{})
 	if response.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("status = %d, want %d", response.StatusCode, http.StatusUnauthorized)
+	}
+}
+
+func TestIngestHandlerExposesPrometheusMetrics(t *testing.T) {
+	handler := IngestHandler(NewMemoryEventStore(), IngestConfig{Token: "secret"})
+	req := httptest.NewRequest(http.MethodGet, "/metrics/prometheus", nil)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d: %s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	body := rec.Body.String()
+	for _, want := range []string{
+		"# HELP rtk_cloud_logger_up Whether the Cloud Logger backend is serving metrics.",
+		"# TYPE rtk_cloud_logger_up gauge",
+		"rtk_cloud_logger_up 1",
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("metrics body missing %q:\n%s", want, body)
+		}
 	}
 }
 
