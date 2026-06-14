@@ -132,12 +132,18 @@ Services should prefer these field names where applicable:
 | `operation_id` | Idempotent operation id. |
 | `device_id` | Device id in log body only; do not use as Loki label. |
 | `org_id` | Organization id in log body only; do not use as Loki label. |
+| `actor_id` | Actor id for admin audit/support drilldown; do not use as Loki label. |
+| `actor_type` | Actor class such as `cloud_admin`, `service`, or `device`. |
+| `outcome` | Stable operation result such as `success` or `failure`. |
+| `status_code` | HTTP or operation status code represented as a string. |
+| `status_class` | Status class such as `2xx`, `4xx`, or `5xx`. |
 | `error` | Error value via `zap.Error(err)`. |
 | `error_category` | Stable error class useful for dashboards or alert context. |
 
 High-cardinality values such as `device_id`, `user_id`, `org_id`,
-`request_id`, paths with dynamic ids, IP addresses, and operation ids must stay
-in the log body and must not be promoted to Loki labels by default.
+`actor_id`, `request_id`, paths with dynamic ids, IP addresses, and operation
+ids must stay in the log body and must not be promoted to Loki labels by
+default.
 
 ## Journald JSON Message Promotion
 
@@ -153,11 +159,21 @@ top-level `LogEvent` body:
 - `user_id`
 - `component`
 - `error_category`
+- `actor_id`
+- `actor_type`
+- `outcome`
+- `status_code`
+- `status_class`
 
 The JSON `msg` value becomes the event message. Unknown non-sensitive fields
 remain in `fields` so support queries can inspect HTTP details and service
 outcomes without adding high-cardinality Loki labels. If `MESSAGE` is not JSON,
 the forwarder keeps the existing plain-text behavior.
+
+Billing and usage metering are owned by Prometheus-facing code or dedicated
+usage meters. Logger events are for admin management, support correlation, and
+billing dispute investigation only. Do not add price, invoice, charge, SKU/plan,
+or billing-state fields to logger events.
 
 ## HTTP Request Logging
 

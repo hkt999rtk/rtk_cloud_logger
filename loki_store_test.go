@@ -13,6 +13,7 @@ import (
 
 func TestLokiEventStoreIngestsQueriesAndDeduplicates(t *testing.T) {
 	var stored []LogEvent
+	var pushedLabels []map[string]string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/ready":
@@ -20,13 +21,15 @@ func TestLokiEventStoreIngestsQueriesAndDeduplicates(t *testing.T) {
 		case "/loki/api/v1/push":
 			var payload struct {
 				Streams []struct {
-					Values [][]string `json:"values"`
+					Stream map[string]string `json:"stream"`
+					Values [][]string        `json:"values"`
 				} `json:"streams"`
 			}
 			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 				t.Fatal(err)
 			}
 			for _, stream := range payload.Streams {
+				pushedLabels = append(pushedLabels, stream.Stream)
 				for _, value := range stream.Values {
 					var event LogEvent
 					if err := json.Unmarshal([]byte(value[1]), &event); err != nil {
@@ -71,6 +74,11 @@ func TestLokiEventStoreIngestsQueriesAndDeduplicates(t *testing.T) {
 	}
 	event := lokiTestEvent()
 	event.Fields = map[string]any{"access_token": "raw-token", "safe": "ok"}
+	event.ActorID = "admin-1"
+	event.ActorType = "cloud_admin"
+	event.Outcome = "failure"
+	event.StatusCode = "500"
+	event.StatusClass = "5xx"
 	if err := store.InsertEvent(context.Background(), event); err != nil {
 		t.Fatalf("InsertEvent: %v", err)
 	}
@@ -81,9 +89,14 @@ func TestLokiEventStoreIngestsQueriesAndDeduplicates(t *testing.T) {
 		t.Fatalf("stored events = %d, want 1", len(stored))
 	}
 	events, err := store.QueryEvents(context.Background(), EventQuery{
-		Service:   "video-cloud-api",
-		TraceID:   "trace-1",
-		RequestID: "request-1",
+		Service:     "video-cloud-api",
+		TraceID:     "trace-1",
+		RequestID:   "request-1",
+		ActorID:     "admin-1",
+		ActorType:   "cloud_admin",
+		Outcome:     "failure",
+		StatusCode:  "500",
+		StatusClass: "5xx",
 	})
 	if err != nil {
 		t.Fatalf("QueryEvents: %v", err)
@@ -96,6 +109,14 @@ func TestLokiEventStoreIngestsQueriesAndDeduplicates(t *testing.T) {
 	}
 	if events[0].Fields["safe"] != "ok" {
 		t.Fatalf("safe = %v, want ok", events[0].Fields["safe"])
+	}
+	if len(pushedLabels) != 1 {
+		t.Fatalf("pushed label sets = %d, want 1", len(pushedLabels))
+	}
+	for _, forbidden := range []string{"actor_id", "actor_type", "outcome", "status_code", "status_class"} {
+		if _, ok := pushedLabels[0][forbidden]; ok {
+			t.Fatalf("admin audit field %q was promoted to Loki labels: %+v", forbidden, pushedLabels[0])
+		}
 	}
 }
 

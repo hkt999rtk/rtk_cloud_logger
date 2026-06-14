@@ -86,7 +86,7 @@ func TestParseJournalRecordBuildsEvent(t *testing.T) {
 }
 
 func TestParseJournalRecordPromotesJSONMessageFields(t *testing.T) {
-	line := []byte(`{"__CURSOR":"s=json","_BOOT_ID":"boot-a","_HOSTNAME":"host-a","_SYSTEMD_UNIT":"video_cloud-certissuer.service","MESSAGE":"{\"level\":\"info\",\"msg\":\"certificate issued\",\"service\":\"certissuer\",\"env\":\"staging\",\"version\":\"release-1\",\"trace_id\":\"trace-json\",\"request_id\":\"20260603T123846Z-rtk-0001\",\"operation_id\":\"factory-enroll\",\"device_id\":\"rtk-0001\",\"org_id\":\"org-rtk\",\"user_id\":\"user-1\",\"component\":\"issuer\",\"error_category\":\"\",\"method\":\"POST\",\"path\":\"/v1/certificates/issue\",\"status\":200,\"duration_ms\":3.4,\"remote_addr\":\"10.42.1.5\",\"caller_identity\":\"factoryenroll\",\"outcome\":\"succeeded\"}","PRIORITY":"6","__REALTIME_TIMESTAMP":"1780297323000000"}`)
+	line := []byte(`{"__CURSOR":"s=json","_BOOT_ID":"boot-a","_HOSTNAME":"host-a","_SYSTEMD_UNIT":"video_cloud-certissuer.service","MESSAGE":"{\"level\":\"info\",\"msg\":\"certificate issued\",\"service\":\"certissuer\",\"env\":\"staging\",\"version\":\"release-1\",\"trace_id\":\"trace-json\",\"request_id\":\"20260603T123846Z-rtk-0001\",\"operation_id\":\"factory-enroll\",\"device_id\":\"rtk-0001\",\"org_id\":\"org-rtk\",\"user_id\":\"user-1\",\"component\":\"issuer\",\"error_category\":\"\",\"actor_id\":\"factoryenroll\",\"actor_type\":\"system\",\"outcome\":\"success\",\"status_code\":200,\"status_class\":\"2xx\",\"method\":\"POST\",\"path\":\"/v1/certificates/issue\",\"status\":200,\"duration_ms\":3.4,\"remote_addr\":\"10.42.1.5\",\"caller_identity\":\"factoryenroll\"}","PRIORITY":"6","__REALTIME_TIMESTAMP":"1780297323000000"}`)
 	record, err := ParseJournalRecord(line, JournalParseConfig{DefaultService: "fallback", DefaultEnv: "dev", DefaultVersion: "dev"})
 	if err != nil {
 		t.Fatalf("ParseJournalRecord: %v", err)
@@ -101,10 +101,13 @@ func TestParseJournalRecordPromotesJSONMessageFields(t *testing.T) {
 	if event.DeviceID != "rtk-0001" || event.OrgID != "org-rtk" || event.UserID != "user-1" || event.Component != "issuer" {
 		t.Fatalf("promoted identity fields = %+v", event)
 	}
+	if event.ActorID != "factoryenroll" || event.ActorType != "system" || event.Outcome != "success" || event.StatusCode != "200" || event.StatusClass != "2xx" {
+		t.Fatalf("promoted admin audit fields = %+v", event)
+	}
 	if event.Fields["method"] != "POST" || event.Fields["path"] != "/v1/certificates/issue" || event.Fields["status"] != float64(200) {
 		t.Fatalf("fields missing HTTP details: %+v", event.Fields)
 	}
-	if event.Fields["caller_identity"] != "factoryenroll" || event.Fields["outcome"] != "succeeded" {
+	if event.Fields["caller_identity"] != "factoryenroll" {
 		t.Fatalf("fields missing certissuer details: %+v", event.Fields)
 	}
 }

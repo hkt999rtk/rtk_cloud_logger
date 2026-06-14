@@ -124,6 +124,11 @@ paths:
         - $ref: "#/components/parameters/DeviceID"
         - $ref: "#/components/parameters/OrgID"
         - $ref: "#/components/parameters/UserID"
+        - $ref: "#/components/parameters/ActorID"
+        - $ref: "#/components/parameters/ActorType"
+        - $ref: "#/components/parameters/Outcome"
+        - $ref: "#/components/parameters/StatusCode"
+        - $ref: "#/components/parameters/StatusClass"
       responses:
         "200":
           description: Matching log events.
@@ -218,6 +223,36 @@ components:
     UserID:
       name: user_id
       in: query
+      schema:
+        type: string
+    ActorID:
+      name: actor_id
+      in: query
+      description: Actor identifier for admin audit and support drilldown.
+      schema:
+        type: string
+    ActorType:
+      name: actor_type
+      in: query
+      description: Actor class, such as `cloud_admin`, `service`, or `device`.
+      schema:
+        type: string
+    Outcome:
+      name: outcome
+      in: query
+      description: Stable operation result, such as `success` or `failure`.
+      schema:
+        type: string
+    StatusCode:
+      name: status_code
+      in: query
+      description: HTTP or operation status code represented as a string.
+      schema:
+        type: string
+    StatusClass:
+      name: status_class
+      in: query
+      description: Status class such as `2xx`, `4xx`, or `5xx`.
       schema:
         type: string
   responses:
@@ -349,6 +384,21 @@ components:
           type: string
         error_category:
           type: string
+        actor_id:
+          type: string
+          description: Actor identifier for admin audit and support drilldown.
+        actor_type:
+          type: string
+          description: Actor class, such as `cloud_admin`, `service`, or `device`.
+        outcome:
+          type: string
+          description: Stable operation result, such as `success` or `failure`.
+        status_code:
+          type: string
+          description: HTTP or operation status code represented as a string.
+        status_class:
+          type: string
+          description: Status class such as `2xx`, `4xx`, or `5xx`.
         fields:
           type: object
           additionalProperties: true
