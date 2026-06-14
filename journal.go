@@ -119,6 +119,11 @@ func ParseJournalRecord(line []byte, cfg JournalParseConfig) (JournalRecord, err
 		UserID:        firstNonEmpty(messageStringField(messageFields, "user_id"), stringField(raw, "USER_ID")),
 		Component:     firstNonEmpty(messageStringField(messageFields, "component"), stringField(raw, "COMPONENT")),
 		ErrorCategory: messageStringField(messageFields, "error_category"),
+		ActorID:       firstNonEmpty(messageStringField(messageFields, "actor_id"), stringField(raw, "ACTOR_ID")),
+		ActorType:     firstNonEmpty(messageStringField(messageFields, "actor_type"), stringField(raw, "ACTOR_TYPE")),
+		Outcome:       firstNonEmpty(messageStringField(messageFields, "outcome"), stringField(raw, "OUTCOME")),
+		StatusCode:    firstNonEmpty(messageStringField(messageFields, "status_code"), stringField(raw, "STATUS_CODE")),
+		StatusClass:   firstNonEmpty(messageStringField(messageFields, "status_class"), stringField(raw, "STATUS_CLASS")),
 		Fields:        journalMessageExtraFields(messageFields),
 	}
 	event = RedactEvent(event)
@@ -185,7 +190,12 @@ func journalMessagePromotedField(key string) bool {
 		"org_id",
 		"user_id",
 		"component",
-		"error_category":
+		"error_category",
+		"actor_id",
+		"actor_type",
+		"outcome",
+		"status_code",
+		"status_class":
 		return true
 	default:
 		return false

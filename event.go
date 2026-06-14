@@ -27,6 +27,11 @@ type LogEvent struct {
 	UserID        string         `json:"user_id,omitempty"`
 	Component     string         `json:"component,omitempty"`
 	ErrorCategory string         `json:"error_category,omitempty"`
+	ActorID       string         `json:"actor_id,omitempty"`
+	ActorType     string         `json:"actor_type,omitempty"`
+	Outcome       string         `json:"outcome,omitempty"`
+	StatusCode    string         `json:"status_code,omitempty"`
+	StatusClass   string         `json:"status_class,omitempty"`
 	Fields        map[string]any `json:"fields,omitempty"`
 }
 

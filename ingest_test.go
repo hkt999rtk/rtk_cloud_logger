@@ -119,6 +119,46 @@ func TestIngestHandlerQueriesByCorrelationFields(t *testing.T) {
 	}
 }
 
+func TestIngestHandlerQueriesByAdminAuditFields(t *testing.T) {
+	store := NewMemoryEventStore()
+	handler := IngestHandler(store, IngestConfig{Token: "secret"})
+	event := LogEvent{
+		EventID:     "evt-admin",
+		Time:        time.Date(2026, 6, 1, 1, 2, 3, 0, time.UTC),
+		Level:       "info",
+		Message:     "device command completed",
+		Service:     "video-cloud-api",
+		Env:         "staging",
+		Version:     "test",
+		Host:        "host-a",
+		Unit:        "video_cloud-api.service",
+		Source:      "journald",
+		ActorID:     "admin-1",
+		ActorType:   "cloud_admin",
+		Outcome:     "success",
+		StatusCode:  "200",
+		StatusClass: "2xx",
+	}
+	_ = postIngest(t, handler, "secret", IngestRequest{Events: []LogEvent{event}})
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/logs?actor_id=admin-1&actor_type=cloud_admin&outcome=success&status_code=200&status_class=2xx", nil)
+	req.Header.Set("Authorization", "Bearer secret")
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, req)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusOK)
+	}
+	var response struct {
+		Events []LogEvent `json:"events"`
+	}
+	if err := json.NewDecoder(recorder.Body).Decode(&response); err != nil {
+		t.Fatalf("decode query response: %v", err)
+	}
+	if len(response.Events) != 1 || response.Events[0].EventID != event.EventID {
+		t.Fatalf("events = %+v, want %s", response.Events, event.EventID)
+	}
+}
+
 func TestIngestHandlerQueriesPromotedJournalJSONCorrelationFields(t *testing.T) {
 	store := NewMemoryEventStore()
 	handler := IngestHandler(store, IngestConfig{Token: "secret"})

@@ -126,8 +126,13 @@ they must not be treated as Loki-style low-cardinality labels by default.
 The journald forwarder promotes known fields from JSON `MESSAGE` payloads into
 the top-level event body before ingest. This makes Account Manager, certissuer,
 factory enroll, and workspace readiness logs queryable by `request_id`,
-`device_id`, `org_id`, and related correlation fields even though those values
-remain out of Loki labels.
+`device_id`, `org_id`, actor, outcome, status, and related correlation fields
+even though those values remain out of Loki labels.
+
+Billing and usage metering are owned by Prometheus/usage-metering pipelines.
+Cloud Logger records are supporting evidence for admin audit, support
+correlation, and billing dispute investigation; they are not the billing ledger
+and must not carry price, invoice, charge, SKU/plan, or billing-state fields.
 
 ## Security
 

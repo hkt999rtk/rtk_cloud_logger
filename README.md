@@ -119,19 +119,25 @@ Common field names:
 - `operation_id`: idempotent operation id
 - `device_id`: device id in the log body only
 - `org_id`: organization id in the log body only
+- `actor_id`: user, service, device, or admin actor id for audit drilldown
+- `actor_type`: actor class such as `cloud_admin`, `service`, or `device`
+- `outcome`: stable result such as `success` or `failure`
+- `status_code`: HTTP or operation status code as a string
+- `status_class`: status class such as `2xx`, `4xx`, or `5xx`
 - `error`: error value via `zap.Error(err)`
 - `error_category`: stable error class
 
 Keep high-cardinality values such as device ids, user ids, organization ids,
-request ids, operation ids, raw paths, and IP addresses in log bodies. Do not
-promote them to default Loki labels.
+actor ids, request ids, operation ids, raw paths, and IP addresses in log
+bodies. Do not promote them to default Loki labels.
 
 The journald forwarder parses JSON object `MESSAGE` payloads emitted by zap
 services. Known fields such as `trace_id`, `request_id`, `operation_id`,
-`device_id`, `org_id`, `user_id`, `component`, and `error_category` are promoted
-to the top-level `LogEvent` body so `/v1/logs` queries can match them. Other
+`device_id`, `org_id`, `user_id`, `component`, `error_category`, `actor_id`,
+`actor_type`, `outcome`, `status_code`, and `status_class` are promoted to the
+top-level `LogEvent` body so `/v1/logs` queries can match them. Other
 non-sensitive JSON fields, such as `method`, `path`, `status`, `duration_ms`,
-`remote_addr`, `caller_identity`, and `outcome`, remain in `fields`.
+`remote_addr`, and `caller_identity`, remain in `fields`.
 
 ## Redaction
 
@@ -156,6 +162,11 @@ storage/query backend. The v1 operator dashboard does not require Grafana:
 Cloud Admin owns the UI and queries Loki, or a workspace/logger query adapter,
 over the private network. Grafana can be added later for an observability
 profile, but it is not part of the v1 dashboard requirement.
+
+Billing and usage metering remain Prometheus/usage-meter responsibilities.
+Logger records provide admin audit, support correlation, and billing dispute
+evidence only. Do not store prices, invoice ids, charge amounts, SKU/plan
+decisions, or billing state in logger events.
 
 The detailed backend and forwarder handoff is documented in
 [`docs/CENTRAL_LOGGING_ARCHITECTURE.md`](docs/CENTRAL_LOGGING_ARCHITECTURE.md).
@@ -187,11 +198,11 @@ The reference backend exposes:
 
 The in-process store is idempotent by `event_id` and supports query filters for
 time, environment, service, host, unit, level, trace id, request id, operation
-id, device id, organization id, and user id. It is a reference implementation
-for service integration and deployment wiring; production persistence can
-replace the `EventStore` interface. Production-like private-cloud profiles
-should use Loki-backed persistence/query rather than the in-process reference
-store.
+id, device id, organization id, user id, actor id, actor type, outcome, status
+code, and status class. It is a reference implementation for service
+integration and deployment wiring; production persistence can replace the
+`EventStore` interface. Production-like private-cloud profiles should use
+Loki-backed persistence/query rather than the in-process reference store.
 
 Forwarder example:
 

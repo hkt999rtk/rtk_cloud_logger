@@ -73,6 +73,11 @@ type EventQuery struct {
 	DeviceID    string
 	OrgID       string
 	UserID      string
+	ActorID     string
+	ActorType   string
+	Outcome     string
+	StatusCode  string
+	StatusClass string
 }
 
 func (q EventQuery) matches(event LogEvent) bool {
@@ -92,7 +97,12 @@ func (q EventQuery) matches(event LogEvent) bool {
 		match(q.OperationID, event.OperationID) &&
 		match(q.DeviceID, event.DeviceID) &&
 		match(q.OrgID, event.OrgID) &&
-		match(q.UserID, event.UserID)
+		match(q.UserID, event.UserID) &&
+		match(q.ActorID, event.ActorID) &&
+		match(q.ActorType, event.ActorType) &&
+		match(q.Outcome, event.Outcome) &&
+		match(q.StatusCode, event.StatusCode) &&
+		match(q.StatusClass, event.StatusClass)
 }
 
 func match(want string, got string) bool {

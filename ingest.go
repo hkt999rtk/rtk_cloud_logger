@@ -128,6 +128,11 @@ func queryFromRequest(r *http.Request) EventQuery {
 		DeviceID:    values.Get("device_id"),
 		OrgID:       values.Get("org_id"),
 		UserID:      values.Get("user_id"),
+		ActorID:     values.Get("actor_id"),
+		ActorType:   values.Get("actor_type"),
+		Outcome:     values.Get("outcome"),
+		StatusCode:  values.Get("status_code"),
+		StatusClass: values.Get("status_class"),
 	}
 }
 
