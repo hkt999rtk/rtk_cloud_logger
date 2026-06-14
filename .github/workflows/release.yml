@@ -125,19 +125,14 @@ jobs:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
           set -euo pipefail
-          if ! command -v aws >/dev/null 2>&1; then
-            python3 -m venv "$RUNNER_TEMP/awscli-venv"
-            "$RUNNER_TEMP/awscli-venv/bin/python" -m pip install --upgrade pip awscli
-            export PATH="$RUNNER_TEMP/awscli-venv/bin:$PATH"
-          fi
           test -n "$AWS_ACCESS_KEY_ID"
           test -n "$AWS_SECRET_ACCESS_KEY"
           test -n "$LINODE_OBJ_BUCKET"
           test -n "$LINODE_OBJ_ENDPOINT"
           prefix="releases/rtk_cloud_logger-$VERSION"
-          aws s3 cp "dist/$VERSION.tar.gz" "s3://$LINODE_OBJ_BUCKET/$prefix/$VERSION.tar.gz" --endpoint-url "$LINODE_OBJ_ENDPOINT" --only-show-errors
-          aws s3 cp "dist/$VERSION.tar.gz.sha256" "s3://$LINODE_OBJ_BUCKET/$prefix/$VERSION.tar.gz.sha256" --endpoint-url "$LINODE_OBJ_ENDPOINT" --only-show-errors
-          aws s3 cp "dist/$VERSION.object-manifest.json" "s3://$LINODE_OBJ_BUCKET/$prefix/manifest.json" --endpoint-url "$LINODE_OBJ_ENDPOINT" --only-show-errors
+          go run ./cmd/linode-object-storage put --file "dist/$VERSION.tar.gz" --key "$prefix/$VERSION.tar.gz"
+          go run ./cmd/linode-object-storage put --file "dist/$VERSION.tar.gz.sha256" --key "$prefix/$VERSION.tar.gz.sha256"
+          go run ./cmd/linode-object-storage put --file "dist/$VERSION.object-manifest.json" --key "$prefix/manifest.json"
 
       - name: Publish GitHub release
         if: startsWith(github.ref, 'refs/tags/')
