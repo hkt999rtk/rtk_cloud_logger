@@ -26,7 +26,7 @@ the backend. Remote delivery is handled by the forwarder.
 | HTTP middleware | Emit one request event after each request with status, latency, sanitized path, and request id. |
 | Forwarder | Read journald/file/container sources, persist cursor, batch, retry, and send to ingest API. |
 | Ingest API | Authenticate forwarders, validate schema, dedupe by `event_id`, and write accepted records. |
-| Storage/query backend | Store service logs and support support/debug queries by time, service, host, unit, trace, request, operation, org, user, and device fields. |
+| Storage/query backend | Store service logs and support support/debug queries by time, service, host, unit, trace, request, operation, org, user, device, actor, outcome, and status fields. |
 
 The current reference backend uses `MemoryEventStore` for integration testing
 and early provisioning. Production persistence should implement the same
@@ -78,7 +78,9 @@ Required behavior:
   limits
 - retry failed batches with exponential backoff and jitter
 - advance cursor only after backend acknowledgement
-- expose local status for readiness scripts
+- expose local status for readiness scripts, including degraded state and spool
+  backlog statistics
+- quarantine corrupt spool files so later valid batches can still flush
 - never delete journald data directly
 
 Delivery is at-least-once. Duplicate sends are expected during crash/retry
@@ -97,6 +99,7 @@ The ingest API must:
 - apply redaction policy before persistence where server-side parsing is used
 - insert idempotently by `event_id`
 - return per-record status for partial batch failures
+- reject oversized request bodies and oversized event batches
 - expose health and readiness endpoints
 
 The reference handler exposes `POST /v1/logs/ingest`, `GET /v1/logs`, and
@@ -119,6 +122,16 @@ The backend must support operational queries for:
 - `device_id`
 - `org_id`
 - `user_id`
+- `actor_id`
+- `actor_type`
+- `outcome`
+- `status_code`
+- `status_class`
+
+The query API should support bounded result pages with `limit`, deterministic
+`order=desc` or `order=asc`, and `400` responses for malformed query
+parameters. Admin-console queries should be bounded by default rather than
+returning unbounded result sets.
 
 High-cardinality fields may be indexed if the selected backend supports it, but
 they must not be treated as Loki-style low-cardinality labels by default.

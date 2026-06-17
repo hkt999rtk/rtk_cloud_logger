@@ -203,6 +203,10 @@ code, and status class. It is a reference implementation for service
 integration and deployment wiring; production persistence can replace the
 `EventStore` interface. Production-like private-cloud profiles should use
 Loki-backed persistence/query rather than the in-process reference store.
+The query API contract is intentionally admin-console friendly: callers should
+page with `limit`, choose `order=desc` for newest-first lists or `order=asc`
+for replay-style inspection, and receive `400` for invalid query parameters
+such as malformed timestamps.
 
 Forwarder example:
 
@@ -219,6 +223,14 @@ go run ./cmd/rtk-cloud-log-forwarder \
 The forwarder reads `journalctl -o json`, creates stable `event_id` values from
 host, boot id, systemd unit, and journal cursor, persists the cursor only after
 backend acknowledgement, and uses a bounded disk spool when upload fails.
+Forwarders should expose local status for readiness and operations tooling,
+including current cursor, last upload result, degraded state, and spool backlog
+file/byte counts. Corrupt spool files should be quarantined so one bad local
+file does not block later valid batches.
+
+The ingest API should bound request body size and maximum events per batch.
+These limits protect the logger backend from accidental oversized batches while
+keeping normal forwarder traffic simple.
 
 ## Service Migration Checklist
 

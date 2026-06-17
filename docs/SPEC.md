@@ -175,6 +175,24 @@ usage meters. Logger events are for admin management, support correlation, and
 billing dispute investigation only. Do not add price, invoice, charge, SKU/plan,
 or billing-state fields to logger events.
 
+## Query API Behavior
+
+`GET /v1/logs` is the Cloud Admin and support query surface. It must support the
+same low-cardinality and post-filter query fields as `EventQuery` while keeping
+high-cardinality values out of Loki labels.
+
+The query API should support:
+
+- `limit` for bounded result pages, defaulting to a conservative page size
+- `order=desc` for newest-first admin lists
+- `order=asc` for replay or timeline inspection
+- `400` responses for invalid query parameters, including malformed timestamps,
+  invalid `limit`, and unsupported `order`
+
+Storage implementations should apply filters first, then sort, then apply the
+limit. Loki-backed implementations must keep high-cardinality fields in
+post-filtering rather than promoting them into selector labels.
+
 ## HTTP Request Logging
 
 HTTP middleware provided by or implemented according to this module should emit
@@ -263,6 +281,22 @@ Recommended deployment roles:
 
 This Go module must not push logs directly to Loki, CloudWatch, or any remote
 backend. Shipping is an infrastructure concern.
+
+## Forwarder And Ingest Operations
+
+Forwarders should expose local status for readiness scripts and deployment
+monitoring. The status surface should report current cursor, last upload time,
+last uploaded count, last error, degraded state, and bounded spool backlog
+statistics such as file count, total bytes, and oldest queued age.
+
+The bounded spool exists to absorb backend outages without blocking
+applications. A corrupt local spool file must not block later valid batches; it
+should be quarantined for operator inspection while the forwarder continues
+flushing other valid spool files.
+
+The ingest API should reject oversized request bodies and batches with too many
+events. These limits protect the backend from accidental oversized forwarder
+uploads while keeping normal batch processing idempotent by `event_id`.
 
 ## Loki Label Guidance
 
