@@ -159,6 +159,92 @@ func TestIngestHandlerQueriesByAdminAuditFields(t *testing.T) {
 	}
 }
 
+func TestIngestHandlerQueriesWithDefaultDescendingOrderAndLimit(t *testing.T) {
+	store := NewMemoryEventStore()
+	handler := IngestHandler(store, IngestConfig{Token: "secret"})
+	events := []LogEvent{
+		queryTestEvent("evt-old", time.Date(2026, 6, 1, 1, 0, 0, 0, time.UTC)),
+		queryTestEvent("evt-mid", time.Date(2026, 6, 1, 2, 0, 0, 0, time.UTC)),
+		queryTestEvent("evt-new", time.Date(2026, 6, 1, 3, 0, 0, 0, time.UTC)),
+	}
+	_ = postIngest(t, handler, "secret", IngestRequest{Events: events})
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/logs?service=query-api&limit=2", nil)
+	req.Header.Set("Authorization", "Bearer secret")
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, req)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusOK)
+	}
+	var response struct {
+		Events []LogEvent `json:"events"`
+	}
+	if err := json.NewDecoder(recorder.Body).Decode(&response); err != nil {
+		t.Fatalf("decode query response: %v", err)
+	}
+	got := eventIDs(response.Events)
+	want := []string{"evt-new", "evt-mid"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("event ids = %v, want %v", got, want)
+	}
+}
+
+func TestIngestHandlerQueriesWithAscendingOrder(t *testing.T) {
+	store := NewMemoryEventStore()
+	handler := IngestHandler(store, IngestConfig{Token: "secret"})
+	events := []LogEvent{
+		queryTestEvent("evt-old", time.Date(2026, 6, 1, 1, 0, 0, 0, time.UTC)),
+		queryTestEvent("evt-new", time.Date(2026, 6, 1, 3, 0, 0, 0, time.UTC)),
+		queryTestEvent("evt-mid", time.Date(2026, 6, 1, 2, 0, 0, 0, time.UTC)),
+	}
+	_ = postIngest(t, handler, "secret", IngestRequest{Events: events})
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/logs?service=query-api&order=asc", nil)
+	req.Header.Set("Authorization", "Bearer secret")
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, req)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusOK)
+	}
+	var response struct {
+		Events []LogEvent `json:"events"`
+	}
+	if err := json.NewDecoder(recorder.Body).Decode(&response); err != nil {
+		t.Fatalf("decode query response: %v", err)
+	}
+	got := eventIDs(response.Events)
+	want := []string{"evt-old", "evt-mid", "evt-new"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("event ids = %v, want %v", got, want)
+	}
+}
+
+func TestIngestHandlerRejectsInvalidQueryParameters(t *testing.T) {
+	handler := IngestHandler(NewMemoryEventStore(), IngestConfig{Token: "secret"})
+	tests := []string{
+		"/v1/logs?since=not-a-time",
+		"/v1/logs?until=not-a-time",
+		"/v1/logs?limit=0",
+		"/v1/logs?limit=1001",
+		"/v1/logs?limit=abc",
+		"/v1/logs?order=sideways",
+	}
+	for _, target := range tests {
+		t.Run(target, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, target, nil)
+			req.Header.Set("Authorization", "Bearer secret")
+			recorder := httptest.NewRecorder()
+			handler.ServeHTTP(recorder, req)
+			if recorder.Code != http.StatusBadRequest {
+				t.Fatalf("status = %d, want %d; body=%q", recorder.Code, http.StatusBadRequest, recorder.Body.String())
+			}
+			if !strings.Contains(recorder.Body.String(), "invalid query parameter") {
+				t.Fatalf("body = %q, want invalid query parameter", recorder.Body.String())
+			}
+		})
+	}
+}
+
 func TestIngestHandlerQueriesPromotedJournalJSONCorrelationFields(t *testing.T) {
 	store := NewMemoryEventStore()
 	handler := IngestHandler(store, IngestConfig{Token: "secret"})
@@ -227,6 +313,29 @@ func TestIngestHandlerRedactsSensitiveUnknownFields(t *testing.T) {
 	if nested["client_secret"] != RedactedValue {
 		t.Fatalf("client_secret = %v, want redacted", nested["client_secret"])
 	}
+}
+
+func queryTestEvent(eventID string, ts time.Time) LogEvent {
+	return LogEvent{
+		EventID: eventID,
+		Time:    ts,
+		Level:   "info",
+		Message: "query event",
+		Service: "query-api",
+		Env:     "staging",
+		Version: "test",
+		Host:    "host-a",
+		Unit:    "query-api.service",
+		Source:  "journald",
+	}
+}
+
+func eventIDs(events []LogEvent) []string {
+	out := make([]string, 0, len(events))
+	for _, event := range events {
+		out = append(out, event.EventID)
+	}
+	return out
 }
 
 func postIngest(t *testing.T, handler http.Handler, token string, body IngestRequest) *http.Response {
