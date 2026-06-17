@@ -296,7 +296,13 @@ flushing other valid spool files.
 
 The ingest API should reject oversized request bodies and batches with too many
 events. These limits protect the backend from accidental oversized forwarder
-uploads while keeping normal batch processing idempotent by `event_id`.
+uploads while keeping normal batch processing idempotent by `event_id`. The
+reference handler defaults to a 10 MiB request body limit and 1000 events per
+batch.
+
+Server-side redaction must recurse through nested maps and arrays preserved in
+event `fields` so sensitive keys or secret-bearing strings are not stored inside
+structured payloads.
 
 ## Loki Label Guidance
 
