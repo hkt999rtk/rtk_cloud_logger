@@ -16,10 +16,14 @@ const (
 	IngestStatusRejected  = "rejected"
 	DefaultQueryLimit     = 100
 	MaxQueryLimit         = 1000
+	DefaultMaxBodyBytes   = 10 << 20
+	DefaultMaxEventsBatch = 1000
 )
 
 type IngestConfig struct {
-	Token string
+	Token             string
+	MaxBodyBytes      int64
+	MaxEventsPerBatch int
 }
 
 type IngestRequest struct {
@@ -71,8 +75,17 @@ rtk_cloud_logger_up 1
 			return
 		}
 		var request IngestRequest
-		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxBodyBytes(cfg))).Decode(&request); err != nil {
+			var maxErr *http.MaxBytesError
+			if errors.As(err, &maxErr) {
+				http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
+				return
+			}
 			http.Error(w, "invalid json", http.StatusBadRequest)
+			return
+		}
+		if len(request.Events) > maxEventsPerBatch(cfg) {
+			http.Error(w, "too many events", http.StatusBadRequest)
 			return
 		}
 		response := IngestResponse{Results: make([]IngestResult, 0, len(request.Events))}
@@ -119,6 +132,20 @@ rtk_cloud_logger_up 1
 		}{Events: events})
 	})
 	return mux
+}
+
+func maxBodyBytes(cfg IngestConfig) int64 {
+	if cfg.MaxBodyBytes <= 0 {
+		return DefaultMaxBodyBytes
+	}
+	return cfg.MaxBodyBytes
+}
+
+func maxEventsPerBatch(cfg IngestConfig) int {
+	if cfg.MaxEventsPerBatch <= 0 {
+		return DefaultMaxEventsBatch
+	}
+	return cfg.MaxEventsPerBatch
 }
 
 func queryFromRequest(r *http.Request) (EventQuery, error) {

@@ -2,7 +2,10 @@ package cloudlogger
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -271,6 +274,134 @@ func TestFileSpoolEnforcesByteLimit(t *testing.T) {
 	}
 	if len(matches) != 0 {
 		t.Fatalf("spool files = %d, want 0 after enforcing tiny limit", len(matches))
+	}
+}
+
+func TestFileSpoolStatsReportsBacklog(t *testing.T) {
+	dir := t.TempDir()
+	spool := FileSpool{Dir: dir, MaxBytes: 1 << 20}
+	oldPath := filepath.Join(dir, "old.json")
+	newPath := filepath.Join(dir, "new.json")
+	if err := os.WriteFile(oldPath, []byte(`{"events":[]}`), 0o600); err != nil {
+		t.Fatalf("write old spool: %v", err)
+	}
+	if err := os.WriteFile(newPath, []byte(`{"events":[]}`), 0o600); err != nil {
+		t.Fatalf("write new spool: %v", err)
+	}
+	oldTime := time.Now().Add(-2 * time.Minute)
+	if err := os.Chtimes(oldPath, oldTime, oldTime); err != nil {
+		t.Fatalf("chtimes old spool: %v", err)
+	}
+
+	stats, err := spool.Stats()
+	if err != nil {
+		t.Fatalf("Stats: %v", err)
+	}
+	if stats.FileCount != 2 {
+		t.Fatalf("file_count = %d, want 2", stats.FileCount)
+	}
+	if stats.Bytes <= 0 {
+		t.Fatalf("bytes = %d, want > 0", stats.Bytes)
+	}
+	if stats.OldestAgeSeconds < 60 {
+		t.Fatalf("oldest_age_seconds = %d, want at least 60", stats.OldestAgeSeconds)
+	}
+}
+
+func TestFileSpoolQuarantinesCorruptFileAndFlushesValidEvents(t *testing.T) {
+	dir := t.TempDir()
+	spool := FileSpool{Dir: dir, MaxBytes: 1 << 20}
+	badPath := filepath.Join(dir, "000-bad.json")
+	goodPath := filepath.Join(dir, "001-good.json")
+	if err := os.WriteFile(badPath, []byte(`not json`), 0o600); err != nil {
+		t.Fatalf("write bad spool: %v", err)
+	}
+	event := LogEvent{EventID: "evt-valid-spool", Time: time.Now().UTC(), Level: "info", Message: "spooled", Service: "svc", Env: "staging", Version: "v1", Host: "host", Unit: "svc.service", Source: "journald"}
+	data, err := json.Marshal(IngestRequest{Events: []LogEvent{event}})
+	if err != nil {
+		t.Fatalf("marshal valid spool: %v", err)
+	}
+	if err := os.WriteFile(goodPath, data, 0o600); err != nil {
+		t.Fatalf("write good spool: %v", err)
+	}
+
+	sink := &fakeSink{}
+	if err := spool.Flush(context.Background(), sink); err != nil {
+		t.Fatalf("Flush: %v", err)
+	}
+	if len(sink.sent) != 1 || sink.sent[0].EventID != event.EventID {
+		t.Fatalf("sent events = %+v, want valid event", sink.sent)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "bad", "000-bad.json")); err != nil {
+		t.Fatalf("bad spool was not quarantined: %v", err)
+	}
+	if _, err := os.Stat(goodPath); !os.IsNotExist(err) {
+		t.Fatalf("good spool still exists or stat failed: %v", err)
+	}
+}
+
+func TestFileSpoolDoesNotQuarantineOnSinkFailure(t *testing.T) {
+	dir := t.TempDir()
+	spool := FileSpool{Dir: dir, MaxBytes: 1 << 20}
+	event := LogEvent{EventID: "evt-send-failure", Time: time.Now().UTC(), Level: "info", Message: "spooled", Service: "svc", Env: "staging", Version: "v1", Host: "host", Unit: "svc.service", Source: "journald"}
+	data, err := json.Marshal(IngestRequest{Events: []LogEvent{event}})
+	if err != nil {
+		t.Fatalf("marshal valid spool: %v", err)
+	}
+	spoolPath := filepath.Join(dir, "valid.json")
+	if err := os.WriteFile(spoolPath, data, 0o600); err != nil {
+		t.Fatalf("write valid spool: %v", err)
+	}
+
+	err = spool.Flush(context.Background(), &fakeSink{err: errors.New("backend down")})
+	if err == nil {
+		t.Fatalf("Flush succeeded, want sink error")
+	}
+	if _, statErr := os.Stat(spoolPath); statErr != nil {
+		t.Fatalf("valid spool should remain after sink failure: %v", statErr)
+	}
+	if _, statErr := os.Stat(filepath.Join(dir, "bad")); !os.IsNotExist(statErr) {
+		t.Fatalf("bad directory exists after sink failure: %v", statErr)
+	}
+}
+
+func TestForwarderStatusHandlerReportsHealthAndSpoolStats(t *testing.T) {
+	dir := t.TempDir()
+	spool := FileSpool{Dir: dir, MaxBytes: 1 << 20}
+	event := LogEvent{EventID: "evt-status-spool", Time: time.Now().UTC(), Level: "info", Message: "spooled", Service: "svc", Env: "staging", Version: "v1", Host: "host", Unit: "svc.service", Source: "journald"}
+	if err := spool.Enqueue(context.Background(), []LogEvent{event}); err != nil {
+		t.Fatalf("Enqueue: %v", err)
+	}
+	forwarder := NewForwarder(&fakeSource{}, &fakeSink{}, NewMemoryCursorStore(), ForwarderConfig{}).WithSpool(spool)
+	handler := ForwarderStatusHandler(forwarder)
+
+	health := httptest.NewRecorder()
+	handler.ServeHTTP(health, httptest.NewRequest(http.MethodGet, "/healthz", nil))
+	if health.Code != http.StatusNoContent {
+		t.Fatalf("health status = %d, want %d", health.Code, http.StatusNoContent)
+	}
+
+	statusRec := httptest.NewRecorder()
+	handler.ServeHTTP(statusRec, httptest.NewRequest(http.MethodGet, "/status", nil))
+	if statusRec.Code != http.StatusOK {
+		t.Fatalf("status code = %d, want %d", statusRec.Code, http.StatusOK)
+	}
+	var status ForwarderStatus
+	if err := json.NewDecoder(statusRec.Body).Decode(&status); err != nil {
+		t.Fatalf("decode status: %v", err)
+	}
+	if status.SpoolFileCount != 1 || status.SpoolBytes <= 0 {
+		t.Fatalf("status spool stats = %+v, want one queued file", status)
+	}
+
+	degraded := NewForwarder(&fakeSource{records: []JournalRecord{{Cursor: "cursor-1", Event: event}}}, &fakeSink{err: errors.New("backend down")}, NewMemoryCursorStore(), ForwarderConfig{})
+	if err := degraded.RunOnce(context.Background()); err == nil {
+		t.Fatalf("RunOnce succeeded, want backend error")
+	}
+	degradedHealth := httptest.NewRecorder()
+	ForwarderStatusHandler(degraded).ServeHTTP(degradedHealth, httptest.NewRequest(http.MethodGet, "/healthz", nil))
+	if degradedHealth.Code != http.StatusServiceUnavailable {
+		t.Fatalf("degraded health status = %d, want %d", degradedHealth.Code, http.StatusServiceUnavailable)
 	}
 }
 

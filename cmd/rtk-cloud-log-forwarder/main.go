@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"log"
+	"net/http"
 	"os"
 	"strings"
 	"time"
@@ -26,6 +27,7 @@ func main() {
 	once := flag.Bool("once", false, "run one forwarding cycle and exit")
 	interval := flag.Duration("interval", 5*time.Second, "poll interval")
 	batchSize := flag.Int("batch-size", 100, "max records per batch")
+	statusAddr := flag.String("status-addr", os.Getenv("RTK_CLOUD_LOGGER_FORWARDER_STATUS_ADDR"), "optional forwarder status listen address")
 	flag.Parse()
 
 	if *endpoint == "" {
@@ -65,6 +67,14 @@ func main() {
 		cloudlogger.FileCursorStore{Path: *cursorPath},
 		cloudlogger.ForwarderConfig{BatchSize: *batchSize},
 	).WithSpool(cloudlogger.FileSpool{Dir: *spoolDir, MaxBytes: *spoolBytes})
+	if *statusAddr != "" {
+		go func() {
+			log.Printf("starting rtk-cloud-log-forwarder status on %s", *statusAddr)
+			if err := http.ListenAndServe(*statusAddr, cloudlogger.ForwarderStatusHandler(forwarder)); err != nil {
+				log.Fatal(err)
+			}
+		}()
+	}
 
 	ctx := context.Background()
 	for {

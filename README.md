@@ -149,7 +149,8 @@ certificate private material.
 `SanitizePath` redacts sensitive query parameter values for `token`,
 `access_token`, `refresh_token`, `api_key`, `apikey`, `password`, and
 `client_secret`. Where sensitive values are useful for correlation, log a stable
-hash or a redacted marker rather than the raw value.
+hash or a redacted marker rather than the raw value. Ingest and forwarder
+parsing redacts sensitive fields in nested maps and arrays before persistence.
 
 ## Deployment Boundary
 
@@ -215,6 +216,7 @@ go run ./cmd/rtk-cloud-log-forwarder \
   -endpoint http://127.0.0.1:18090/v1/logs/ingest \
   -token "$RTK_CLOUD_LOGGER_TOKEN" \
   -units rtk-account-manager.service,video_cloud-api.service \
+  -status-addr 127.0.0.1:18190 \
   -service account-manager \
   -env staging \
   -version "$VERSION"
@@ -230,7 +232,8 @@ file does not block later valid batches.
 
 The ingest API should bound request body size and maximum events per batch.
 These limits protect the logger backend from accidental oversized batches while
-keeping normal forwarder traffic simple.
+keeping normal forwarder traffic simple. The default reference handler limits
+request bodies to 10 MiB and batches to 1000 events.
 
 ## Service Migration Checklist
 

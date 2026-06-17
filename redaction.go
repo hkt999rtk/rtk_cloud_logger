@@ -39,13 +39,26 @@ func redactMap(in map[string]any) map[string]any {
 			out[key] = RedactedValue
 			continue
 		}
-		if nested, ok := value.(map[string]any); ok {
-			out[key] = redactMap(nested)
-			continue
-		}
-		out[key] = value
+		out[key] = redactAny(value)
 	}
 	return out
+}
+
+func redactAny(value any) any {
+	switch typed := value.(type) {
+	case map[string]any:
+		return redactMap(typed)
+	case []any:
+		out := make([]any, len(typed))
+		for i, item := range typed {
+			out[i] = redactAny(item)
+		}
+		return out
+	case string:
+		return RedactText(typed)
+	default:
+		return value
+	}
 }
 
 func sensitiveFieldName(name string) bool {

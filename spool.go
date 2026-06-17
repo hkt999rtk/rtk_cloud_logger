@@ -14,6 +14,12 @@ type Spool interface {
 	Flush(context.Context, EventSink) error
 }
 
+type SpoolStats struct {
+	FileCount        int   `json:"file_count"`
+	Bytes            int64 `json:"bytes"`
+	OldestAgeSeconds int64 `json:"oldest_age_seconds,omitempty"`
+}
+
 type FileSpool struct {
 	Dir      string
 	MaxBytes int64
@@ -50,7 +56,10 @@ func (s FileSpool) Flush(ctx context.Context, sink EventSink) error {
 		}
 		var request IngestRequest
 		if err := json.Unmarshal(data, &request); err != nil {
-			return err
+			if quarantineErr := s.quarantine(entry.path); quarantineErr != nil {
+				return quarantineErr
+			}
+			continue
 		}
 		if err := sink.Send(ctx, request.Events); err != nil {
 			return err
@@ -60,6 +69,26 @@ func (s FileSpool) Flush(ctx context.Context, sink EventSink) error {
 		}
 	}
 	return nil
+}
+
+func (s FileSpool) Stats() (SpoolStats, error) {
+	entries, err := s.entries()
+	if err != nil {
+		return SpoolStats{}, err
+	}
+	stats := SpoolStats{FileCount: len(entries)}
+	now := time.Now()
+	for _, entry := range entries {
+		stats.Bytes += entry.size
+		age := int64(now.Sub(entry.modTime).Seconds())
+		if age < 0 {
+			age = 0
+		}
+		if stats.OldestAgeSeconds == 0 || age > stats.OldestAgeSeconds {
+			stats.OldestAgeSeconds = age
+		}
+	}
+	return stats, nil
 }
 
 func (s FileSpool) enforceLimit() error {
@@ -86,9 +115,24 @@ func (s FileSpool) enforceLimit() error {
 	return nil
 }
 
+func (s FileSpool) quarantine(path string) error {
+	badDir := filepath.Join(s.Dir, "bad")
+	if err := os.MkdirAll(badDir, 0o700); err != nil {
+		return err
+	}
+	target := filepath.Join(badDir, filepath.Base(path))
+	if _, err := os.Stat(target); err == nil {
+		target = filepath.Join(badDir, time.Now().UTC().Format("20060102T150405.000000000")+"-"+filepath.Base(path))
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+	return os.Rename(path, target)
+}
+
 type spoolEntry struct {
-	path string
-	size int64
+	path    string
+	size    int64
+	modTime time.Time
 }
 
 func (s FileSpool) entries() ([]spoolEntry, error) {
@@ -108,7 +152,7 @@ func (s FileSpool) entries() ([]spoolEntry, error) {
 		if err != nil {
 			return nil, err
 		}
-		out = append(out, spoolEntry{path: filepath.Join(s.Dir, entry.Name()), size: info.Size()})
+		out = append(out, spoolEntry{path: filepath.Join(s.Dir, entry.Name()), size: info.Size(), modTime: info.ModTime()})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].path < out[j].path })
 	return out, nil

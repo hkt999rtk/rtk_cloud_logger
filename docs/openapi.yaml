@@ -48,7 +48,8 @@ paths:
         Events are validated, redacted before persistence, and inserted
         idempotently by `event_id`. Deployments should enforce bounded request
         body size and maximum events per batch to protect the backend from
-        accidental oversized forwarder uploads.
+        accidental oversized forwarder uploads. The reference handler defaults
+        to a 10 MiB request body limit and 1000 events per batch.
       operationId: ingestLogs
       requestBody:
         required: true

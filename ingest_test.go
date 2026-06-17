@@ -56,6 +56,38 @@ func TestIngestHandlerRejectsUnauthenticatedRequests(t *testing.T) {
 	}
 }
 
+func TestIngestHandlerRejectsOversizedBody(t *testing.T) {
+	handler := IngestHandler(NewMemoryEventStore(), IngestConfig{Token: "secret", MaxBodyBytes: 8})
+	req := httptest.NewRequest(http.MethodPost, "/v1/logs/ingest", strings.NewReader(`{"events":[]}`))
+	req.Header.Set("Authorization", "Bearer secret")
+	recorder := httptest.NewRecorder()
+
+	handler.ServeHTTP(recorder, req)
+
+	if recorder.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("status = %d, want %d; body=%q", recorder.Code, http.StatusRequestEntityTooLarge, recorder.Body.String())
+	}
+	if !strings.Contains(recorder.Body.String(), "request body too large") {
+		t.Fatalf("body = %q, want request body too large", recorder.Body.String())
+	}
+}
+
+func TestIngestHandlerRejectsTooManyEvents(t *testing.T) {
+	handler := IngestHandler(NewMemoryEventStore(), IngestConfig{Token: "secret", MaxEventsPerBatch: 1})
+	response := postIngest(t, handler, "secret", IngestRequest{Events: []LogEvent{
+		queryTestEvent("evt-1", time.Date(2026, 6, 1, 1, 0, 0, 0, time.UTC)),
+		queryTestEvent("evt-2", time.Date(2026, 6, 1, 2, 0, 0, 0, time.UTC)),
+	}})
+	if response.StatusCode != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d", response.StatusCode, http.StatusBadRequest)
+	}
+	body := new(bytes.Buffer)
+	_, _ = body.ReadFrom(response.Body)
+	if !strings.Contains(body.String(), "too many events") {
+		t.Fatalf("body = %q, want too many events", body.String())
+	}
+}
+
 func TestIngestHandlerExposesPrometheusMetrics(t *testing.T) {
 	handler := IngestHandler(NewMemoryEventStore(), IngestConfig{Token: "secret"})
 	req := httptest.NewRequest(http.MethodGet, "/metrics/prometheus", nil)
@@ -336,6 +368,48 @@ func eventIDs(events []LogEvent) []string {
 		out = append(out, event.EventID)
 	}
 	return out
+}
+
+func TestRedactEventRedactsNestedArraysAndSensitiveValues(t *testing.T) {
+	event := LogEvent{
+		EventID: "evt-nested-redact",
+		Time:    time.Date(2026, 6, 1, 1, 2, 3, 0, time.UTC),
+		Level:   "info",
+		Message: "safe message",
+		Service: "api",
+		Env:     "staging",
+		Version: "test",
+		Host:    "host-a",
+		Unit:    "api.service",
+		Source:  "journald",
+		Fields: map[string]any{
+			"items": []any{
+				map[string]any{"client_secret": "raw-secret", "safe": "ok"},
+				"Bearer raw-token",
+			},
+			"nested": map[string]any{
+				"values": []any{
+					map[string]any{"password": "raw-password"},
+				},
+			},
+		},
+	}
+
+	redacted := RedactEvent(event)
+
+	items := redacted.Fields["items"].([]any)
+	first := items[0].(map[string]any)
+	if first["client_secret"] != RedactedValue || first["safe"] != "ok" {
+		t.Fatalf("first item = %+v, want secret redacted and safe preserved", first)
+	}
+	if items[1] != RedactedValue {
+		t.Fatalf("second item = %v, want redacted", items[1])
+	}
+	nestedValues := redacted.Fields["nested"].(map[string]any)["values"].([]any)
+	nestedSecret := nestedValues[0].(map[string]any)
+	if nestedSecret["password"] != RedactedValue {
+		t.Fatalf("nested password = %v, want redacted", nestedSecret["password"])
+	}
 }
 
 func postIngest(t *testing.T, handler http.Handler, token string, body IngestRequest) *http.Response {

@@ -2,6 +2,8 @@ package cloudlogger
 
 import (
 	"context"
+	"encoding/json"
+	"net/http"
 	"sync"
 	"time"
 )
@@ -24,11 +26,15 @@ type ForwarderConfig struct {
 }
 
 type ForwarderStatus struct {
-	Cursor            string    `json:"cursor"`
-	LastUploadAt      time.Time `json:"last_upload_at,omitempty"`
-	LastError         string    `json:"last_error,omitempty"`
-	Degraded          bool      `json:"degraded"`
-	LastUploadedCount int       `json:"last_uploaded_count"`
+	Cursor                string    `json:"cursor"`
+	LastUploadAt          time.Time `json:"last_upload_at,omitempty"`
+	LastError             string    `json:"last_error,omitempty"`
+	Degraded              bool      `json:"degraded"`
+	LastUploadedCount     int       `json:"last_uploaded_count"`
+	SpoolFileCount        int       `json:"spool_file_count"`
+	SpoolBytes            int64     `json:"spool_bytes"`
+	SpoolOldestAgeSeconds int64     `json:"spool_oldest_age_seconds,omitempty"`
+	SpoolError            string    `json:"spool_error,omitempty"`
 }
 
 type Forwarder struct {
@@ -40,6 +46,10 @@ type Forwarder struct {
 
 	mu     sync.Mutex
 	status ForwarderStatus
+}
+
+type spoolStatsProvider interface {
+	Stats() (SpoolStats, error)
 }
 
 func NewForwarder(source EventSource, sink EventSink, cursor CursorStore, cfg ForwarderConfig) *Forwarder {
@@ -100,8 +110,19 @@ func (f *Forwarder) RunOnce(ctx context.Context) error {
 
 func (f *Forwarder) Status() ForwarderStatus {
 	f.mu.Lock()
-	defer f.mu.Unlock()
-	return f.status
+	status := f.status
+	f.mu.Unlock()
+	if provider, ok := f.spool.(spoolStatsProvider); ok {
+		stats, err := provider.Stats()
+		if err != nil {
+			status.SpoolError = err.Error()
+			return status
+		}
+		status.SpoolFileCount = stats.FileCount
+		status.SpoolBytes = stats.Bytes
+		status.SpoolOldestAgeSeconds = stats.OldestAgeSeconds
+	}
+	return status
 }
 
 func (f *Forwarder) setError(cursor string, err error) {
@@ -122,4 +143,28 @@ func (f *Forwarder) setOK(cursor string, count int) {
 		f.status.LastUploadAt = time.Now().UTC()
 	}
 	f.status.LastUploadedCount = count
+}
+
+func ForwarderStatusHandler(forwarder *Forwarder) http.Handler {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if forwarder.Status().Degraded {
+			http.Error(w, "forwarder degraded", http.StatusServiceUnavailable)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
+	mux.HandleFunc("/status", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(forwarder.Status())
+	})
+	return mux
 }
