@@ -46,7 +46,9 @@ paths:
       description: >
         Accepts a batch of normalized service log events from a forwarder.
         Events are validated, redacted before persistence, and inserted
-        idempotently by `event_id`.
+        idempotently by `event_id`. Deployments should enforce bounded request
+        body size and maximum events per batch to protect the backend from
+        accidental oversized forwarder uploads.
       operationId: ingestLogs
       requestBody:
         required: true
@@ -102,13 +104,16 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "405":
           $ref: "#/components/responses/MethodNotAllowed"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
   /v1/logs:
     get:
       summary: Query service log events
       description: >
         Returns stored service log events matching the provided filters.
         High-cardinality identifiers remain query fields and are not default
-        Loki-style labels.
+        Loki-style labels. Results are bounded by `limit` and ordered by event
+        timestamp using `order`.
       operationId: queryLogs
       parameters:
         - $ref: "#/components/parameters/Since"
@@ -129,6 +134,8 @@ paths:
         - $ref: "#/components/parameters/Outcome"
         - $ref: "#/components/parameters/StatusCode"
         - $ref: "#/components/parameters/StatusClass"
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Order"
       responses:
         "200":
           description: Matching log events.
@@ -136,6 +143,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/QueryResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "405":
@@ -255,14 +264,33 @@ components:
       description: Status class such as `2xx`, `4xx`, or `5xx`.
       schema:
         type: string
+    Limit:
+      name: limit
+      in: query
+      description: Maximum number of events to return. Defaults to 100; maximum is 1000.
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 1000
+        default: 100
+    Order:
+      name: order
+      in: query
+      description: Timestamp ordering for returned events.
+      schema:
+        type: string
+        enum:
+          - asc
+          - desc
+        default: desc
   responses:
     BadRequest:
-      description: Invalid request body.
+      description: Invalid request body or query parameter.
       content:
         text/plain:
           schema:
             type: string
-          example: invalid json
+          example: invalid query parameter
     Unauthorized:
       description: Missing or invalid bearer token.
       content:
@@ -277,6 +305,13 @@ components:
           schema:
             type: string
           example: method not allowed
+    PayloadTooLarge:
+      description: Request body exceeds the configured ingest size limit.
+      content:
+        text/plain:
+          schema:
+            type: string
+          example: request body too large
     InternalServerError:
       description: Backend query failed.
       content:
