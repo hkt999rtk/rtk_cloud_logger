@@ -191,6 +191,47 @@ func TestIngestHandlerQueriesByAdminAuditFields(t *testing.T) {
 	}
 }
 
+func TestIngestHandlerQueriesByEventIDComponentAndSource(t *testing.T) {
+	store := NewMemoryEventStore()
+	handler := IngestHandler(store, IngestConfig{Token: "secret"})
+	event := LogEvent{
+		EventID:   "evt-device-runtime-1",
+		Time:      time.Date(2026, 6, 1, 1, 2, 3, 0, time.UTC),
+		Level:     "info",
+		Message:   "ready",
+		Service:   "video-cloud",
+		Env:       "staging",
+		Version:   "test",
+		Host:      "host-a",
+		Unit:      "video_cloud-logingester.service",
+		Source:    "device-runtime",
+		DeviceID:  "device-1",
+		Component: "device_runtime_log",
+	}
+	other := event
+	other.EventID = "evt-device-runtime-2"
+	other.Source = "journald"
+	other.Component = "service_log"
+	_ = postIngest(t, handler, "secret", IngestRequest{Events: []LogEvent{event, other}})
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/logs?event_id=evt-device-runtime-1&component=device_runtime_log&source=device-runtime", nil)
+	req.Header.Set("Authorization", "Bearer secret")
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, req)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusOK)
+	}
+	var response struct {
+		Events []LogEvent `json:"events"`
+	}
+	if err := json.NewDecoder(recorder.Body).Decode(&response); err != nil {
+		t.Fatalf("decode query response: %v", err)
+	}
+	if len(response.Events) != 1 || response.Events[0].EventID != event.EventID {
+		t.Fatalf("events = %+v, want %s", response.Events, event.EventID)
+	}
+}
+
 func TestIngestHandlerQueriesWithDefaultDescendingOrderAndLimit(t *testing.T) {
 	store := NewMemoryEventStore()
 	handler := IngestHandler(store, IngestConfig{Token: "secret"})

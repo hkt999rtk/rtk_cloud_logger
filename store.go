@@ -70,17 +70,20 @@ type EventQuery struct {
 	Until       time.Time
 	Limit       int
 	Order       string
+	EventID     string
 	Env         string
 	Service     string
 	Host        string
 	Unit        string
 	Level       string
+	Source      string
 	TraceID     string
 	RequestID   string
 	OperationID string
 	DeviceID    string
 	OrgID       string
 	UserID      string
+	Component   string
 	ActorID     string
 	ActorType   string
 	Outcome     string
@@ -96,16 +99,19 @@ func (q EventQuery) matches(event LogEvent) bool {
 		return false
 	}
 	return match(q.Env, event.Env) &&
+		match(q.EventID, event.EventID) &&
 		match(q.Service, event.Service) &&
 		match(q.Host, event.Host) &&
 		match(q.Unit, event.Unit) &&
 		match(q.Level, event.Level) &&
+		match(q.Source, event.Source) &&
 		match(q.TraceID, event.TraceID) &&
 		match(q.RequestID, event.RequestID) &&
 		match(q.OperationID, event.OperationID) &&
 		match(q.DeviceID, event.DeviceID) &&
 		match(q.OrgID, event.OrgID) &&
 		match(q.UserID, event.UserID) &&
+		match(q.Component, event.Component) &&
 		match(q.ActorID, event.ActorID) &&
 		match(q.ActorType, event.ActorType) &&
 		match(q.Outcome, event.Outcome) &&

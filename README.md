@@ -198,12 +198,13 @@ The reference backend exposes:
 - `GET /healthz`
 
 The in-process store is idempotent by `event_id` and supports query filters for
-time, environment, service, host, unit, level, trace id, request id, operation
-id, device id, organization id, user id, actor id, actor type, outcome, status
-code, and status class. It is a reference implementation for service
-integration and deployment wiring; production persistence can replace the
-`EventStore` interface. Production-like private-cloud profiles should use
-Loki-backed persistence/query rather than the in-process reference store.
+time, event id, environment, service, host, unit, level, source, trace id,
+request id, operation id, device id, organization id, user id, component, actor
+id, actor type, outcome, status code, and status class. It is a reference
+implementation for service integration and deployment wiring; production
+persistence can replace the `EventStore` interface. Production-like
+private-cloud profiles should use Loki-backed persistence/query rather than the
+in-process reference store.
 The query API contract is intentionally admin-console friendly: callers should
 page with `limit`, choose `order=desc` for newest-first lists or `order=asc`
 for replay-style inspection, and receive `400` for invalid query parameters
