@@ -3,7 +3,9 @@ package cloudlogger
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -12,6 +14,8 @@ const (
 	IngestStatusAccepted  = "accepted"
 	IngestStatusDuplicate = "duplicate"
 	IngestStatusRejected  = "rejected"
+	DefaultQueryLimit     = 100
+	MaxQueryLimit         = 1000
 )
 
 type IngestConfig struct {
@@ -99,7 +103,12 @@ rtk_cloud_logger_up 1
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
-		events, err := store.QueryEvents(r.Context(), queryFromRequest(r))
+		query, err := queryFromRequest(r)
+		if err != nil {
+			http.Error(w, "invalid query parameter: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		events, err := store.QueryEvents(r.Context(), query)
 		if err != nil {
 			http.Error(w, "query failed", http.StatusInternalServerError)
 			return
@@ -112,11 +121,29 @@ rtk_cloud_logger_up 1
 	return mux
 }
 
-func queryFromRequest(r *http.Request) EventQuery {
+func queryFromRequest(r *http.Request) (EventQuery, error) {
 	values := r.URL.Query()
+	since, err := parseQueryTime("since", values.Get("since"))
+	if err != nil {
+		return EventQuery{}, err
+	}
+	until, err := parseQueryTime("until", values.Get("until"))
+	if err != nil {
+		return EventQuery{}, err
+	}
+	limit, err := parseQueryLimit(values.Get("limit"))
+	if err != nil {
+		return EventQuery{}, err
+	}
+	order, err := parseQueryOrder(values.Get("order"))
+	if err != nil {
+		return EventQuery{}, err
+	}
 	return EventQuery{
-		Since:       parseQueryTime(values.Get("since")),
-		Until:       parseQueryTime(values.Get("until")),
+		Since:       since,
+		Until:       until,
+		Limit:       limit,
+		Order:       order,
 		Env:         values.Get("env"),
 		Service:     values.Get("service"),
 		Host:        values.Get("host"),
@@ -133,18 +160,45 @@ func queryFromRequest(r *http.Request) EventQuery {
 		Outcome:     values.Get("outcome"),
 		StatusCode:  values.Get("status_code"),
 		StatusClass: values.Get("status_class"),
-	}
+	}, nil
 }
 
-func parseQueryTime(value string) time.Time {
+func parseQueryTime(name string, value string) (time.Time, error) {
 	if value == "" {
-		return time.Time{}
+		return time.Time{}, nil
 	}
 	parsed, err := time.Parse(time.RFC3339Nano, value)
 	if err != nil {
-		return time.Time{}
+		return time.Time{}, fmt.Errorf("%s must be RFC3339", name)
 	}
-	return parsed
+	return parsed, nil
+}
+
+func parseQueryLimit(value string) (int, error) {
+	if value == "" {
+		return DefaultQueryLimit, nil
+	}
+	limit, err := strconv.Atoi(value)
+	if err != nil {
+		return 0, fmt.Errorf("limit must be an integer")
+	}
+	if limit < 1 || limit > MaxQueryLimit {
+		return 0, fmt.Errorf("limit must be between 1 and %d", MaxQueryLimit)
+	}
+	return limit, nil
+}
+
+func parseQueryOrder(value string) (string, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return QueryOrderDesc, nil
+	}
+	switch value {
+	case QueryOrderAsc, QueryOrderDesc:
+		return value, nil
+	default:
+		return "", fmt.Errorf("order must be asc or desc")
+	}
 }
 
 func bearerToken(header string) string {

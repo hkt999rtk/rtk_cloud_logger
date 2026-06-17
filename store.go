@@ -3,11 +3,17 @@ package cloudlogger
 import (
 	"context"
 	"errors"
+	"sort"
 	"sync"
 	"time"
 )
 
 var ErrDuplicateEvent = errors.New("duplicate event")
+
+const (
+	QueryOrderAsc  = "asc"
+	QueryOrderDesc = "desc"
+)
 
 type EventStore interface {
 	InsertEvent(context.Context, LogEvent) error
@@ -50,7 +56,7 @@ func (s *MemoryEventStore) QueryEvents(_ context.Context, query EventQuery) ([]L
 			out = append(out, event)
 		}
 	}
-	return out, nil
+	return applyQueryOrderAndLimit(out, query), nil
 }
 
 func (s *MemoryEventStore) Count() int {
@@ -62,6 +68,8 @@ func (s *MemoryEventStore) Count() int {
 type EventQuery struct {
 	Since       time.Time
 	Until       time.Time
+	Limit       int
+	Order       string
 	Env         string
 	Service     string
 	Host        string
@@ -107,4 +115,27 @@ func (q EventQuery) matches(event LogEvent) bool {
 
 func match(want string, got string) bool {
 	return want == "" || want == got
+}
+
+func applyQueryOrderAndLimit(events []LogEvent, query EventQuery) []LogEvent {
+	order := query.Order
+	if order == "" {
+		order = QueryOrderDesc
+	}
+	sort.Slice(events, func(i, j int) bool {
+		if events[i].Time.Equal(events[j].Time) {
+			if order == QueryOrderAsc {
+				return events[i].EventID < events[j].EventID
+			}
+			return events[i].EventID > events[j].EventID
+		}
+		if order == QueryOrderAsc {
+			return events[i].Time.Before(events[j].Time)
+		}
+		return events[i].Time.After(events[j].Time)
+	})
+	if query.Limit > 0 && len(events) > query.Limit {
+		return events[:query.Limit]
+	}
+	return events
 }

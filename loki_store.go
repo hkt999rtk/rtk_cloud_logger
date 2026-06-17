@@ -152,10 +152,7 @@ func (s *LokiEventStore) QueryEvents(ctx context.Context, query EventQuery) ([]L
 			out = append(out, event)
 		}
 	}
-	sort.Slice(out, func(i, j int) bool {
-		return out[i].Time.Before(out[j].Time)
-	})
-	return out, nil
+	return applyQueryOrderAndLimit(out, query), nil
 }
 
 func (s *LokiEventStore) forget(eventID string) {

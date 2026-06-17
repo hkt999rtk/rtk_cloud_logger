@@ -120,6 +120,64 @@ func TestLokiEventStoreIngestsQueriesAndDeduplicates(t *testing.T) {
 	}
 }
 
+func TestLokiEventStoreAppliesPostFilterOrderAndLimit(t *testing.T) {
+	stored := []LogEvent{
+		lokiQueryTestEvent("evt-old", time.Date(2026, 6, 1, 1, 0, 0, 0, time.UTC)),
+		lokiQueryTestEvent("evt-new", time.Date(2026, 6, 1, 3, 0, 0, 0, time.UTC)),
+		lokiQueryTestEvent("evt-mid", time.Date(2026, 6, 1, 2, 0, 0, 0, time.UTC)),
+	}
+	var rawSelector string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/loki/api/v1/query_range":
+			rawSelector = r.URL.Query().Get("query")
+			values := make([][]string, 0, len(stored))
+			for _, event := range stored {
+				body, _ := json.Marshal(event)
+				values = append(values, []string{strconvTime(event.Time), string(body)})
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"status": "success",
+				"data": map[string]any{
+					"resultType": "streams",
+					"result": []map[string]any{{
+						"stream": map[string]string{"service": "video-cloud-api"},
+						"values": values,
+					}},
+				},
+			})
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.RequestURI())
+		}
+	}))
+	defer server.Close()
+
+	store, err := NewLokiEventStore(LokiStoreConfig{BaseURL: server.URL})
+	if err != nil {
+		t.Fatalf("NewLokiEventStore: %v", err)
+	}
+	events, err := store.QueryEvents(context.Background(), EventQuery{
+		Service:   "video-cloud-api",
+		RequestID: "request-post-filter",
+		ActorID:   "admin-post-filter",
+		Limit:     2,
+		Order:     QueryOrderDesc,
+	})
+	if err != nil {
+		t.Fatalf("QueryEvents: %v", err)
+	}
+	got := eventIDs(events)
+	want := []string{"evt-new", "evt-mid"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("event ids = %v, want %v", got, want)
+	}
+	for _, forbidden := range []string{"request_id", "actor_id"} {
+		if strings.Contains(rawSelector, forbidden) {
+			t.Fatalf("selector %q contains high-cardinality field %q", rawSelector, forbidden)
+		}
+	}
+}
+
 func TestIngestHandlerHealthReportsLokiUnavailable(t *testing.T) {
 	store, err := NewLokiEventStore(LokiStoreConfig{BaseURL: "http://127.0.0.1:1"})
 	if err != nil {
@@ -131,6 +189,15 @@ func TestIngestHandlerHealthReportsLokiUnavailable(t *testing.T) {
 	if recorder.Code != http.StatusServiceUnavailable {
 		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusServiceUnavailable)
 	}
+}
+
+func lokiQueryTestEvent(eventID string, ts time.Time) LogEvent {
+	event := lokiTestEvent()
+	event.EventID = eventID
+	event.Time = ts
+	event.RequestID = "request-post-filter"
+	event.ActorID = "admin-post-filter"
+	return event
 }
 
 func lokiTestEvent() LogEvent {
