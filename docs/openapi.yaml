@@ -119,17 +119,20 @@ paths:
       parameters:
         - $ref: "#/components/parameters/Since"
         - $ref: "#/components/parameters/Until"
+        - $ref: "#/components/parameters/EventID"
         - $ref: "#/components/parameters/Env"
         - $ref: "#/components/parameters/Service"
         - $ref: "#/components/parameters/Host"
         - $ref: "#/components/parameters/Unit"
         - $ref: "#/components/parameters/Level"
+        - $ref: "#/components/parameters/Source"
         - $ref: "#/components/parameters/TraceID"
         - $ref: "#/components/parameters/RequestID"
         - $ref: "#/components/parameters/OperationID"
         - $ref: "#/components/parameters/DeviceID"
         - $ref: "#/components/parameters/OrgID"
         - $ref: "#/components/parameters/UserID"
+        - $ref: "#/components/parameters/Component"
         - $ref: "#/components/parameters/ActorID"
         - $ref: "#/components/parameters/ActorType"
         - $ref: "#/components/parameters/Outcome"
@@ -182,6 +185,12 @@ components:
       schema:
         type: string
       example: staging
+    EventID:
+      name: event_id
+      in: query
+      schema:
+        type: string
+      example: 6f8d9cf1b41e4f4aa1e76f0a7c6328e8b8dbd48c2d5724ecacda54f1e0f0d942
     Service:
       name: service
       in: query
@@ -205,6 +214,12 @@ components:
       in: query
       schema:
         $ref: "#/components/schemas/LogLevel"
+    Source:
+      name: source
+      in: query
+      schema:
+        type: string
+      example: journald
     TraceID:
       name: trace_id
       in: query
@@ -235,6 +250,12 @@ components:
       in: query
       schema:
         type: string
+    Component:
+      name: component
+      in: query
+      schema:
+        type: string
+      example: device_runtime_log
     ActorID:
       name: actor_id
       in: query
