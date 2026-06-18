@@ -13,6 +13,7 @@ on:
 
 permissions:
   contents: write
+  packages: write
 
 jobs:
   package:
@@ -28,6 +29,9 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
       - name: Select version
         id: version
@@ -58,6 +62,18 @@ jobs:
           test -z "$(gofmt -l $(git ls-files '*.go'))"
           go mod tidy -diff
           go test ./...
+
+      - name: Publish GHCR image
+        shell: bash
+        env:
+          GHCR_IMAGE: ghcr.io/${{ github.repository }}/rtk-cloud-logger
+          GHCR_TAG: sha-${{ github.sha }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          image="${GHCR_IMAGE,,}:${GHCR_TAG:0:16}"
+          echo "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          docker buildx build --platform linux/amd64 --push -t "$image" .
 
       - name: Build release bundle
         shell: bash
