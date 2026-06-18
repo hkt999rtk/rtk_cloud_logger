@@ -43,3 +43,6 @@ jobs:
           GOOS=linux GOARCH=amd64 go build -o dist/bin/rtk-cloud-log-forwarder ./cmd/rtk-cloud-log-forwarder
           file dist/bin/rtk-cloud-logger | grep -q 'ELF 64-bit.*x86-64'
           file dist/bin/rtk-cloud-log-forwarder | grep -q 'ELF 64-bit.*x86-64'
+
+      - name: Build container image
+        run: docker build -t rtk-cloud-logger:ci .
