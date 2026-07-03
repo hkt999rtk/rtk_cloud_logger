@@ -28,9 +28,9 @@ the backend. Remote delivery is handled by the forwarder.
 | Ingest API | Authenticate forwarders, validate schema, dedupe by `event_id`, and write accepted records. |
 | Storage/query backend | Store service logs and support support/debug queries by time, service, host, unit, trace, request, operation, org, user, device, actor, outcome, and status fields. |
 
-The current reference backend uses `MemoryEventStore` for integration testing
-and early provisioning. Production persistence should implement the same
-`EventStore` interface without changing service or forwarder contracts.
+The current reference backend uses Loki for persistence. The in-process
+`EventStore` implementation exists for package-level tests only and must not be
+used by staging or production deployments.
 
 ## Log Event Shape
 

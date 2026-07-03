@@ -197,14 +197,11 @@ The reference backend exposes:
 - `GET /v1/logs`
 - `GET /healthz`
 
-The in-process store is idempotent by `event_id` and supports query filters for
-time, event id, environment, service, host, unit, level, source, trace id,
-request id, operation id, device id, organization id, user id, component, actor
-id, actor type, outcome, status code, and status class. It is a reference
-implementation for service integration and deployment wiring; production
-persistence can replace the `EventStore` interface. Production-like
-private-cloud profiles should use Loki-backed persistence/query rather than the
-in-process reference store.
+The CLI backend always uses Loki through `RTK_CLOUD_LOGGER_LOKI_URL` or
+`-loki-url`. Service deployments must not fall back to in-process memory
+storage. The in-process store remains available only to unit tests and embedded
+package tests that exercise the `EventStore` interface directly.
+
 The query API contract is intentionally admin-console friendly: callers should
 page with `limit`, choose `order=desc` for newest-first lists or `order=asc`
 for replay-style inspection, and receive `400` for invalid query parameters

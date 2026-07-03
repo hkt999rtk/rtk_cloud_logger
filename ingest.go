@@ -42,7 +42,7 @@ type IngestResponse struct {
 
 func IngestHandler(store EventStore, cfg IngestConfig) http.Handler {
 	if store == nil {
-		store = NewMemoryEventStore()
+		panic("rtk_cloud_logger: nil EventStore")
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
