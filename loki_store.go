@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 )
 
 type LokiStoreConfig struct {
@@ -24,6 +25,7 @@ type LokiEventStore struct {
 	client  *http.Client
 	mu      sync.Mutex
 	seen    map[string]struct{}
+	lastTS  map[string]time.Time
 }
 
 func NewLokiEventStore(cfg LokiStoreConfig) (*LokiEventStore, error) {
@@ -35,7 +37,7 @@ func NewLokiEventStore(cfg LokiStoreConfig) (*LokiEventStore, error) {
 	if client == nil {
 		client = http.DefaultClient
 	}
-	return &LokiEventStore{baseURL: base, client: client, seen: map[string]struct{}{}}, nil
+	return &LokiEventStore{baseURL: base, client: client, seen: map[string]struct{}{}, lastTS: map[string]time.Time{}}, nil
 }
 
 func (s *LokiEventStore) Health(ctx context.Context) error {
@@ -59,12 +61,19 @@ func (s *LokiEventStore) InsertEvent(ctx context.Context, event LogEvent) error 
 	if err := event.Validate(); err != nil {
 		return err
 	}
+	labels := lokiLabels(event)
+	labelKey := lokiLabelKey(labels)
+	pushTime := event.Time.UTC()
 	s.mu.Lock()
 	if _, ok := s.seen[event.EventID]; ok {
 		s.mu.Unlock()
 		return ErrDuplicateEvent
 	}
+	if previous := s.lastTS[labelKey]; !previous.IsZero() && !pushTime.After(previous) {
+		pushTime = previous.Add(time.Nanosecond)
+	}
 	s.seen[event.EventID] = struct{}{}
+	s.lastTS[labelKey] = pushTime
 	s.mu.Unlock()
 
 	line, err := json.Marshal(event)
@@ -73,9 +82,9 @@ func (s *LokiEventStore) InsertEvent(ctx context.Context, event LogEvent) error 
 	}
 	payload := map[string]any{
 		"streams": []map[string]any{{
-			"stream": lokiLabels(event),
+			"stream": labels,
 			"values": [][]string{{
-				strconv.FormatInt(event.Time.UnixNano(), 10),
+				strconv.FormatInt(pushTime.UnixNano(), 10),
 				string(line),
 			}},
 		}},
@@ -97,6 +106,19 @@ func (s *LokiEventStore) InsertEvent(ctx context.Context, event LogEvent) error 
 		return fmt.Errorf("loki push status %d", resp.StatusCode)
 	}
 	return nil
+}
+
+func lokiLabelKey(labels map[string]string) string {
+	keys := make([]string, 0, len(labels))
+	for key := range labels {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	parts := make([]string, 0, len(keys)*2)
+	for _, key := range keys {
+		parts = append(parts, key, labels[key])
+	}
+	return strings.Join(parts, "\x00")
 }
 
 func (s *LokiEventStore) QueryEvents(ctx context.Context, query EventQuery) ([]LogEvent, error) {
