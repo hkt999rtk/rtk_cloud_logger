@@ -65,8 +65,8 @@ func (s *LokiEventStore) InsertEvent(ctx context.Context, event LogEvent) error 
 	labelKey := lokiLabelKey(labels)
 	pushTime := event.Time.UTC()
 	s.mu.Lock()
+	defer s.mu.Unlock()
 	if _, ok := s.seen[event.EventID]; ok {
-		s.mu.Unlock()
 		return ErrDuplicateEvent
 	}
 	if previous := s.lastTS[labelKey]; !previous.IsZero() && !pushTime.After(previous) {
@@ -74,7 +74,6 @@ func (s *LokiEventStore) InsertEvent(ctx context.Context, event LogEvent) error 
 	}
 	s.seen[event.EventID] = struct{}{}
 	s.lastTS[labelKey] = pushTime
-	s.mu.Unlock()
 
 	line, err := json.Marshal(event)
 	if err != nil {
@@ -97,12 +96,12 @@ func (s *LokiEventStore) InsertEvent(ctx context.Context, event LogEvent) error 
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := s.client.Do(req)
 	if err != nil {
-		s.forget(event.EventID)
+		delete(s.seen, event.EventID)
 		return err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		s.forget(event.EventID)
+		delete(s.seen, event.EventID)
 		return fmt.Errorf("loki push status %d", resp.StatusCode)
 	}
 	return nil
