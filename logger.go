@@ -11,6 +11,7 @@ type Config struct {
 	Service     string
 	Env         string
 	Version     string
+	Unit        string
 	Level       string
 	Development bool
 }
@@ -63,7 +64,7 @@ func ParseLevel(level string) zapcore.Level {
 }
 
 func initialFields(cfg Config) map[string]any {
-	fields := make(map[string]any, 3)
+	fields := make(map[string]any, 4)
 	if value := strings.TrimSpace(cfg.Service); value != "" {
 		fields["service"] = value
 	}
@@ -72,6 +73,9 @@ func initialFields(cfg Config) map[string]any {
 	}
 	if value := strings.TrimSpace(cfg.Version); value != "" {
 		fields["version"] = value
+	}
+	if value := strings.TrimSpace(cfg.Unit); value != "" {
+		fields["unit"] = value
 	}
 	return fields
 }
