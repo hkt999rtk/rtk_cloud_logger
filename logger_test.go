@@ -35,6 +35,7 @@ func TestNewEmitsJSONWithServiceFields(t *testing.T) {
 		Service: "video-cloud-api",
 		Env:     "staging",
 		Version: "test-version",
+		Unit:    "video-cloud-api.service",
 		Level:   "debug",
 	}, zapcore.AddSync(&out))
 	if err != nil {
@@ -47,7 +48,7 @@ func TestNewEmitsJSONWithServiceFields(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &event); err != nil {
 		t.Fatalf("log output is not JSON: %v\n%s", err, out.String())
 	}
-	if event["service"] != "video-cloud-api" || event["env"] != "staging" || event["version"] != "test-version" {
+	if event["service"] != "video-cloud-api" || event["env"] != "staging" || event["version"] != "test-version" || event["unit"] != "video-cloud-api.service" {
 		t.Fatalf("missing service fields: %#v", event)
 	}
 	if event["level"] != "info" || event["msg"] != "started" || event["addr"] != "127.0.0.1:18080" {
@@ -60,6 +61,7 @@ func TestZapConfigUsesProductionJSONContract(t *testing.T) {
 		Service:     " video-cloud-api ",
 		Env:         " staging ",
 		Version:     " v1.2.3 ",
+		Unit:        " video-cloud-api.service ",
 		Level:       "debug",
 		Development: true,
 	})
@@ -79,7 +81,7 @@ func TestZapConfigUsesProductionJSONContract(t *testing.T) {
 	if cfg.EncoderConfig.CallerKey != "caller" || cfg.EncoderConfig.StacktraceKey != "stacktrace" {
 		t.Fatalf("unexpected caller/stacktrace keys: %#v", cfg.EncoderConfig)
 	}
-	if cfg.InitialFields["service"] != "video-cloud-api" || cfg.InitialFields["env"] != "staging" || cfg.InitialFields["version"] != "v1.2.3" {
+	if cfg.InitialFields["service"] != "video-cloud-api" || cfg.InitialFields["env"] != "staging" || cfg.InitialFields["version"] != "v1.2.3" || cfg.InitialFields["unit"] != "video-cloud-api.service" {
 		t.Fatalf("InitialFields not trimmed or incomplete: %#v", cfg.InitialFields)
 	}
 }
