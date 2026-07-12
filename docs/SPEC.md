@@ -175,6 +175,26 @@ usage meters. Logger events are for admin management, support correlation, and
 billing dispute investigation only. Do not add price, invoice, charge, SKU/plan,
 or billing-state fields to logger events.
 
+## Metered Usage Stream
+
+The logger deployment also provides a logically isolated `billing_usage`
+stream for periodic metering snapshots. This stream is not the operational
+service-log stream and is not an invoice API.
+
+Billing usage producers use a dedicated ingest credential and producer
+identity. Billing usage has its own retention, archival, batch consumer, and
+access policy. Operational log credentials cannot write to the billing stream.
+
+Usage fields are structured data, not Loki labels. The generic envelope is
+owned by the shared contracts repository and includes `service_code`,
+`metric_code`, `unit`, `quantity`, `brand_cloud_id`, time-window fields,
+`meter_epoch`, and `sequence`. The logger transports and stores these events;
+the usage aggregator validates, deduplicates, and writes durable usage facts.
+
+The logger must preserve at-least-once delivery and stable event identity for
+billing usage. It must not calculate prices, invoices, quotas, or plan
+entitlements.
+
 ## Query API Behavior
 
 `GET /v1/logs` is the Cloud Admin and support query surface. It must support the

@@ -183,13 +183,17 @@ func (s *LokiEventStore) forget(eventID string) {
 }
 
 func lokiLabels(event LogEvent) map[string]string {
-	return map[string]string{
+	labels := map[string]string{
 		"env":     event.Env,
 		"service": event.Service,
 		"host":    event.Host,
 		"unit":    event.Unit,
 		"level":   event.Level,
 	}
+	if event.Stream != "" {
+		labels["stream"] = event.Stream
+	}
+	return labels
 }
 
 func lokiSelector(query EventQuery) string {
@@ -208,6 +212,9 @@ func lokiSelector(query EventQuery) string {
 	}
 	if query.Level != "" {
 		labels["level"] = query.Level
+	}
+	if query.Stream != "" {
+		labels["stream"] = query.Stream
 	}
 	if len(labels) == 0 {
 		return `{service=~".+"}`

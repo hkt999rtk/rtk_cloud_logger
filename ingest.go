@@ -22,6 +22,7 @@ const (
 
 type IngestConfig struct {
 	Token             string
+	BillingToken      string
 	MaxBodyBytes      int64
 	MaxEventsPerBatch int
 }
@@ -70,7 +71,8 @@ rtk_cloud_logger_up 1
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		if cfg.Token != "" && bearerToken(r.Header.Get("Authorization")) != cfg.Token {
+		authToken := bearerToken(r.Header.Get("Authorization"))
+		if !authorizedToken(cfg, authToken) {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
@@ -91,6 +93,12 @@ rtk_cloud_logger_up 1
 		response := IngestResponse{Results: make([]IngestResult, 0, len(request.Events))}
 		for _, event := range request.Events {
 			result := IngestResult{EventID: event.EventID}
+			if event.Stream == "billing_usage" && cfg.BillingToken != "" && authToken != cfg.BillingToken {
+				result.Status = IngestStatusRejected
+				result.Error = "billing usage token required"
+				response.Results = append(response.Results, result)
+				continue
+			}
 			err := store.InsertEvent(r.Context(), event)
 			switch {
 			case err == nil:
@@ -112,13 +120,18 @@ rtk_cloud_logger_up 1
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		if cfg.Token != "" && bearerToken(r.Header.Get("Authorization")) != cfg.Token {
+		authToken := bearerToken(r.Header.Get("Authorization"))
+		if !authorizedToken(cfg, authToken) {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
 		query, err := queryFromRequest(r)
 		if err != nil {
 			http.Error(w, "invalid query parameter: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		if query.Stream == "billing_usage" && cfg.BillingToken != "" && authToken != cfg.BillingToken {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
 		events, err := store.QueryEvents(r.Context(), query)
@@ -132,6 +145,13 @@ rtk_cloud_logger_up 1
 		}{Events: events})
 	})
 	return mux
+}
+
+func authorizedToken(cfg IngestConfig, token string) bool {
+	if cfg.Token == "" && cfg.BillingToken == "" {
+		return true
+	}
+	return token == cfg.Token || token == cfg.BillingToken
 }
 
 func maxBodyBytes(cfg IngestConfig) int64 {
@@ -178,6 +198,7 @@ func queryFromRequest(r *http.Request) (EventQuery, error) {
 		Unit:        values.Get("unit"),
 		Level:       values.Get("level"),
 		Source:      values.Get("source"),
+		Stream:      values.Get("stream"),
 		TraceID:     values.Get("trace_id"),
 		RequestID:   values.Get("request_id"),
 		OperationID: values.Get("operation_id"),

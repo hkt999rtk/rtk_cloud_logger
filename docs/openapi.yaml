@@ -126,6 +126,7 @@ paths:
         - $ref: "#/components/parameters/Unit"
         - $ref: "#/components/parameters/Level"
         - $ref: "#/components/parameters/Source"
+        - $ref: "#/components/parameters/Stream"
         - $ref: "#/components/parameters/TraceID"
         - $ref: "#/components/parameters/RequestID"
         - $ref: "#/components/parameters/OperationID"
@@ -217,6 +218,12 @@ components:
     Source:
       name: source
       in: query
+      schema:
+        type: string
+    Stream:
+      name: stream
+      in: query
+      description: Logical stream, such as `operational` or `billing_usage`.
       schema:
         type: string
       example: journald
@@ -425,6 +432,9 @@ components:
         source:
           type: string
           example: journald
+        stream:
+          type: string
+          description: Logical stream used to isolate billing usage from operational logs.
         trace_id:
           type: string
         request_id:

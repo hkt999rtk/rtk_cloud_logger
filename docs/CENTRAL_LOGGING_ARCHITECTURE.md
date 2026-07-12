@@ -142,10 +142,17 @@ factory enroll, and workspace readiness logs queryable by `request_id`,
 `device_id`, `org_id`, actor, outcome, status, and related correlation fields
 even though those values remain out of Loki labels.
 
-Billing and usage metering are owned by Prometheus/usage-metering pipelines.
-Cloud Logger records are supporting evidence for admin audit, support
-correlation, and billing dispute investigation; they are not the billing ledger
-and must not carry price, invoice, charge, SKU/plan, or billing-state fields.
+Billing and usage metering are owned by usage-metering pipelines. Cloud Logger
+records are supporting evidence for admin audit, support correlation, and
+billing dispute investigation; they are not the billing ledger and must not
+carry price, invoice, charge, SKU/plan, or billing-state fields.
+
+The logger deployment may expose a separate `billing_usage` logical stream for
+periodic usage snapshots. It uses dedicated producer credentials, retention,
+consumer permissions, and delivery alerts while sharing the logger runtime.
+Usage events keep `brand_cloud_id` and metric dimensions as structured fields,
+not Loki labels. The usage aggregator validates and deduplicates these events
+before writing durable usage facts.
 
 ## Security
 

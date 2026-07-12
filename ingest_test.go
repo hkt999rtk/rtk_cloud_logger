@@ -56,6 +56,28 @@ func TestIngestHandlerRejectsUnauthenticatedRequests(t *testing.T) {
 	}
 }
 
+func TestIngestHandlerRequiresDedicatedBillingToken(t *testing.T) {
+	store := NewMemoryEventStore()
+	handler := IngestHandler(store, IngestConfig{Token: "operational", BillingToken: "billing"})
+	event := queryTestEvent("billing-event", time.Date(2026, 7, 12, 1, 0, 0, 0, time.UTC))
+	event.Stream = "billing_usage"
+	response := postIngest(t, handler, "operational", IngestRequest{Events: []LogEvent{event}})
+	if response.StatusCode != http.StatusAccepted {
+		t.Fatalf("status = %d, want accepted response", response.StatusCode)
+	}
+	var body IngestResponse
+	if err := json.NewDecoder(response.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if len(body.Results) != 1 || body.Results[0].Status != IngestStatusRejected || store.Count() != 0 {
+		t.Fatalf("response=%+v stored=%d", body.Results, store.Count())
+	}
+	response = postIngest(t, handler, "billing", IngestRequest{Events: []LogEvent{event}})
+	if response.StatusCode != http.StatusAccepted || store.Count() != 1 {
+		t.Fatalf("billing response=%d stored=%d", response.StatusCode, store.Count())
+	}
+}
+
 func TestIngestHandlerRejectsOversizedBody(t *testing.T) {
 	handler := IngestHandler(NewMemoryEventStore(), IngestConfig{Token: "secret", MaxBodyBytes: 8})
 	req := httptest.NewRequest(http.MethodPost, "/v1/logs/ingest", strings.NewReader(`{"events":[]}`))

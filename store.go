@@ -77,6 +77,7 @@ type EventQuery struct {
 	Unit        string
 	Level       string
 	Source      string
+	Stream      string
 	TraceID     string
 	RequestID   string
 	OperationID string
@@ -105,6 +106,7 @@ func (q EventQuery) matches(event LogEvent) bool {
 		match(q.Unit, event.Unit) &&
 		match(q.Level, event.Level) &&
 		match(q.Source, event.Source) &&
+		match(q.Stream, event.Stream) &&
 		match(q.TraceID, event.TraceID) &&
 		match(q.RequestID, event.RequestID) &&
 		match(q.OperationID, event.OperationID) &&
