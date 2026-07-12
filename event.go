@@ -19,6 +19,7 @@ type LogEvent struct {
 	Host          string         `json:"host"`
 	Unit          string         `json:"unit"`
 	Source        string         `json:"source"`
+	Stream        string         `json:"stream,omitempty"`
 	TraceID       string         `json:"trace_id,omitempty"`
 	RequestID     string         `json:"request_id,omitempty"`
 	OperationID   string         `json:"operation_id,omitempty"`
