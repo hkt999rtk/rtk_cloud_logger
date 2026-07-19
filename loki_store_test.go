@@ -127,10 +127,12 @@ func TestLokiEventStoreAppliesPostFilterOrderAndLimit(t *testing.T) {
 		lokiQueryTestEvent("evt-mid", time.Date(2026, 6, 1, 2, 0, 0, 0, time.UTC)),
 	}
 	var rawSelector string
+	var rawLimit string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/loki/api/v1/query_range":
 			rawSelector = r.URL.Query().Get("query")
+			rawLimit = r.URL.Query().Get("limit")
 			values := make([][]string, 0, len(stored))
 			for _, event := range stored {
 				body, _ := json.Marshal(event)
@@ -175,6 +177,9 @@ func TestLokiEventStoreAppliesPostFilterOrderAndLimit(t *testing.T) {
 		if strings.Contains(rawSelector, forbidden) {
 			t.Fatalf("selector %q contains high-cardinality field %q", rawSelector, forbidden)
 		}
+	}
+	if rawLimit != strconv.Itoa(lokiPostFilterCandidateLimit) {
+		t.Fatalf("Loki candidate limit = %q, want %d", rawLimit, lokiPostFilterCandidateLimit)
 	}
 }
 

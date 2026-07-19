@@ -15,6 +15,8 @@ import (
 	"time"
 )
 
+const lokiPostFilterCandidateLimit = 5000
+
 type LokiStoreConfig struct {
 	BaseURL string
 	Client  *http.Client
@@ -123,6 +125,9 @@ func lokiLabelKey(labels map[string]string) string {
 func (s *LokiEventStore) QueryEvents(ctx context.Context, query EventQuery) ([]LogEvent, error) {
 	values := url.Values{}
 	values.Set("query", lokiSelector(query))
+	// Device and correlation fields stay out of Loki labels to avoid unbounded
+	// cardinality, so fetch enough candidates before applying those filters.
+	values.Set("limit", strconv.Itoa(lokiPostFilterCandidateLimit))
 	if !query.Since.IsZero() {
 		values.Set("start", strconv.FormatInt(query.Since.UnixNano(), 10))
 	}
