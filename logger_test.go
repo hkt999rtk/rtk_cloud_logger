@@ -107,6 +107,21 @@ func TestNewForTestEmitsSingleLineJSONWithProductionFields(t *testing.T) {
 	}
 }
 
+func TestPublicLoggerConstructors(t *testing.T) {
+	logger, err := New(Config{Service: "coverage", Level: "error"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	logger.Error("constructor coverage")
+	_ = logger.Sync()
+	if got := MustNew(Config{Service: "must"}); got == nil {
+		t.Fatal("MustNew returned nil")
+	}
+	if got := Nop(); got == nil {
+		t.Fatal("Nop returned nil")
+	}
+}
+
 func newForTest(cfg Config, sink zapcore.WriteSyncer) (*zap.Logger, error) {
 	encoderCfg := zap.NewProductionEncoderConfig()
 	core := zapcore.NewCore(zapcore.NewJSONEncoder(encoderCfg), sink, ParseLevel(cfg.Level))
