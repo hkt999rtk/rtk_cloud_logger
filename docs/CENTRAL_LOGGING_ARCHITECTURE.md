@@ -158,7 +158,7 @@ before writing durable usage facts.
 
 Never store raw auth headers, bearer tokens, refresh tokens, cookies, passwords,
 database DSNs with credentials, OIDC client secrets, TURN shared secrets, Linode
-tokens, Object Storage credentials, SMTP credentials, private keys, or
+tokens, Object Storage credentials, email delivery credentials, private keys, or
 certificate private material.
 
 When a field is useful for correlation but sensitive, store a stable hash or a
