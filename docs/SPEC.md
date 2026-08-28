@@ -172,7 +172,7 @@ the forwarder keeps the existing plain-text behavior.
 
 Billing and usage metering are owned by Prometheus-facing code or dedicated
 usage meters. Logger events are for admin management, support correlation, and
-billing dispute investigation only. Do not add price, invoice, charge, SKU/plan,
+billing dispute investigation only. Do not add price, invoice, charge, Product/plan,
 or billing-state fields to logger events.
 
 ## Metered Usage Stream
