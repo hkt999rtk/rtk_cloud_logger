@@ -145,7 +145,7 @@ even though those values remain out of Loki labels.
 Billing and usage metering are owned by usage-metering pipelines. Cloud Logger
 records are supporting evidence for admin audit, support correlation, and
 billing dispute investigation; they are not the billing ledger and must not
-carry price, invoice, charge, SKU/plan, or billing-state fields.
+carry price, invoice, charge, Product/plan, or billing-state fields.
 
 The logger deployment may expose a separate `billing_usage` logical stream for
 periodic usage snapshots. It uses dedicated producer credentials, retention,

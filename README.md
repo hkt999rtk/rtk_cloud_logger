@@ -166,7 +166,7 @@ profile, but it is not part of the v1 dashboard requirement.
 
 Billing and usage metering remain Prometheus/usage-meter responsibilities.
 Logger records provide admin audit, support correlation, and billing dispute
-evidence only. Do not store prices, invoice ids, charge amounts, SKU/plan
+evidence only. Do not store prices, invoice ids, charge amounts, Product/plan
 decisions, or billing state in logger events.
 
 The detailed backend and forwarder handoff is documented in
