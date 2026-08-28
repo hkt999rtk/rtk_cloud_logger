@@ -143,7 +143,7 @@ non-sensitive JSON fields, such as `method`, `path`, `status`, `duration_ms`,
 
 Do not log authorization headers, bearer tokens, refresh tokens, account
 passwords, OIDC client secrets, database DSNs with credentials, TURN shared
-secrets, cloud provider credentials, SMTP credentials, private keys, or
+secrets, cloud provider credentials, email delivery credentials, private keys, or
 certificate private material.
 
 `SanitizePath` redacts sensitive query parameter values for `token`,
