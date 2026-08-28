@@ -172,7 +172,7 @@ the forwarder keeps the existing plain-text behavior.
 
 Billing and usage metering are owned by Prometheus-facing code or dedicated
 usage meters. Logger events are for admin management, support correlation, and
-billing dispute investigation only. Do not add price, invoice, charge, SKU/plan,
+billing dispute investigation only. Do not add price, invoice, charge, Product/plan,
 or billing-state fields to logger events.
 
 ## Metered Usage Stream
@@ -265,13 +265,8 @@ Never log:
 - OIDC client secrets
 - database DSNs with credentials
 - TURN shared secrets
-- Linode, GoDaddy, S3, SMTP, or CloudWatch credentials
+- Linode, GoDaddy, S3, email delivery, or CloudWatch credentials
 - private keys or certificate private material
-
-Evaluation-only token delivery logs are allowed for local development when a
-service explicitly configures a `log` delivery adapter. Such events must be
-clearly named and documented by the service repository, and production-like
-deployments must not use that adapter.
 
 Where a value is useful for correlation but sensitive, services should log a
 stable hash or redacted marker instead of the raw value.

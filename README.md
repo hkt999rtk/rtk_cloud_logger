@@ -143,7 +143,7 @@ non-sensitive JSON fields, such as `method`, `path`, `status`, `duration_ms`,
 
 Do not log authorization headers, bearer tokens, refresh tokens, account
 passwords, OIDC client secrets, database DSNs with credentials, TURN shared
-secrets, cloud provider credentials, SMTP credentials, private keys, or
+secrets, cloud provider credentials, email delivery credentials, private keys, or
 certificate private material.
 
 `SanitizePath` redacts sensitive query parameter values for `token`,
@@ -166,7 +166,7 @@ profile, but it is not part of the v1 dashboard requirement.
 
 Billing and usage metering remain Prometheus/usage-meter responsibilities.
 Logger records provide admin audit, support correlation, and billing dispute
-evidence only. Do not store prices, invoice ids, charge amounts, SKU/plan
+evidence only. Do not store prices, invoice ids, charge amounts, Product/plan
 decisions, or billing state in logger events.
 
 The detailed backend and forwarder handoff is documented in
