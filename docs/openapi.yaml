@@ -57,8 +57,8 @@ paths:
         '400': { description: Invalid limit or unsupported filter. }
         '401': { description: Dedicated billing credential required. }
         '405': { description: GET required. }
-        '409': { description: Malformed cursor, wrong store or restored data behind cursor. }
-        '503': { description: Inbox missing, closed, damaged or unavailable. }
+        '409': { description: 'Malformed cursor, wrong store or restored data behind cursor.' }
+        '503': { description: 'Inbox missing, closed, damaged or unavailable.' }
   /healthz:
     get:
       summary: Health check
