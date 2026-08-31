@@ -195,6 +195,55 @@ The logger must preserve at-least-once delivery and stable event identity for
 billing usage. It must not calculate prices, invoices, quotas, or plan
 entitlements.
 
+### Durable billing inbox and collection
+
+Billing snapshots use a dedicated retained local bbolt inbox, not the operational
+Loki store or its process-local deduplication map. A synchronous transaction
+commits the event, immutable financial-content digest and receipt sequence
+together before acknowledgment. Duplicate event IDs with changed usage, event
+time, environment, stream or source are rejected; deployment host/version metadata
+may change on retry but do not replace the original stored event. Quantities are
+decoded as JSON numbers without a float64 round trip. Financial fields requiring
+redaction are rejected rather than silently transformed.
+
+The inbox has a persisted random store identity and monotonically committed
+receipt sequence. `GET /v1/billing-usage/events` reads this sequence using an
+opaque cursor, not producer timestamps. Each page carries `store_id`,
+`high_water`, `records`, `next_cursor` and `has_more`. The first page freezes its
+committed high-water mark; subsequent pages finish that horizon even while new
+events arrive. Polling the final cursor starts a new horizon, so late usage with
+an older producer timestamp is still collected. A page's receipt sequence is not
+a usage meter sequence. Gap/corruption, a cursor ahead of restored data or a
+different store identity fails closed. An empty page proves only this inbox's
+current committed horizon, never that all producers drained through a cutoff.
+
+Consumers must persist their cursor with the corresponding validated facts, or
+replay from the last durable cursor after failure. Duplicate facts do not count
+as fewer fetched records. No consumer may use newly inserted fact count or the
+legacy `/v1/logs` result length to infer completeness. Ownership transfer still
+requires the complete producer inventory, drain manifests and settlement proof.
+
+Only the dedicated nonempty billing credential can ingest or query billing.
+It cannot read/write operational logs. Operational/support queries never expose
+historical billing records, including unfiltered queries. `/v1/logs` is not the
+financial collection endpoint. A missing inbox rejects billing requests and
+reports unhealthy when billing is enabled; there is no Loki/memory fallback.
+
+The runtime requires `RTK_CLOUD_LOGGER_BILLING_INBOX` to name an absolute file in
+a private 0700 directory. Initial creation requires the explicit
+`-initialize-billing-inbox` flag. Normal restarts must not initialize missing
+storage. One process exclusively owns each inbox file; retain it on a stable
+volume and route its producers/consumer to that same store identity. Do not
+deploy independent randomly balanced inbox replicas as though they form one
+stream. HA routing, volume restore/archival and throughput require release
+qualification. No automatic receipt/event eviction is implemented. PostgreSQL
+remains off the per-log path; only validated batch facts are persisted there.
+
+Cutover requires freezing/draining and reconciling the old stream, provisioning
+the retained inbox, then deploying the receiver and cursor consumer together.
+Existing Loki billing records are not automatically imported or asserted to be
+complete. Never discard a queue or advance a cursor to bypass reconciliation.
+
 ## Query API Behavior
 
 `GET /v1/logs` is the Cloud Admin and support query surface. It must support the

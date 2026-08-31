@@ -154,6 +154,13 @@ Usage events keep `brand_cloud_id` and metric dimensions as structured fields,
 not Loki labels. The usage aggregator validates and deduplicates these events
 before writing durable usage facts.
 
+The billing runtime now uses the retained single-writer inbox and commit-sequence
+collection protocol in [spec.md](spec.md#durable-billing-inbox-and-collection).
+Operational Loki queries are not complete financial collection evidence. A
+bounded cursor horizon proves only committed inbox records; producer drain and
+settlement remain separate cross-service requirements. Do not silently create a
+new inbox after volume loss or route one consumer across independent inboxes.
+
 ## Security
 
 Never store raw auth headers, bearer tokens, refresh tokens, cookies, passwords,
