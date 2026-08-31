@@ -1,6 +1,30 @@
+---
+rtk_spec:
+  id: SPEC-LOGGER
+  status: normative
+  owner: rtk_cloud_logger
+  requirement_inventory: complete
+---
+
 # RTK Cloud Logger Specification
 
-## Purpose
+## [FEAT-LOGGER-IMPLEMENTATION-001] Logger transport, isolation and retained billing delivery
+
+<!-- rtk-feature
+{"owner":"rtk_cloud_logger","risk":"critical","status":"active","change_paths":["repos/rtk_cloud_logger/**"],"commit_anchors":["cloud_logger"],"surfaces":[{"kind":"api-route","source":"repos/rtk_cloud_logger/docs/openapi.yaml","selector":"listBillingUsageInbox"}]}
+-->
+
+This service specification implements the canonical service logging and billing
+usage contracts; these IDs track implementation obligations, not replacement
+authority for the shared contracts.
+
+### [REQ-LOGGER-BOUNDARY-001] Purpose
+
+<!-- rtk-requirement
+{"acceptance_layer":"integration","gate":"pr","environments":["ci"],"evidence":["json","junit"],"required":true,"status":"active"}
+-->
+
+Acceptance: Preserve logger scope and stdout collection boundaries.
 
 `rtk_cloud_logger` is the shared logging module for RTK cloud Go services and
 the source of truth for application log format policy, central service-log
@@ -12,7 +36,7 @@ standardizes service log emission first while also owning the central logger
 backend and journald forwarder contracts. Deployment tooling provisions those
 components and wires service hosts to them.
 
-## Scope
+#### Scope
 
 This repository owns:
 
@@ -38,7 +62,13 @@ This repository does not own:
 Applications must write logs to stdout/stderr. Agents collect logs from
 journald, Docker, nginx files, or other host-level sources.
 
-## Logging Backend
+### [REQ-LOGGER-ADOPTION-001] Logging Backend
+
+<!-- rtk-requirement
+{"acceptance_layer":"integration","gate":"pr","environments":["ci"],"evidence":["json","junit"],"required":true,"status":"active"}
+-->
+
+Acceptance: Use the shared typed structured logger.
 
 The Go package must use `go.uber.org/zap`.
 
@@ -84,7 +114,13 @@ func NewForwarder(EventSource, EventSink, CursorStore, ForwarderConfig) *Forward
 Additional helpers may be added when they remove duplicated service code, but
 they must preserve typed zap fields.
 
-## Required Fields
+### [REQ-LOGGER-FIELDS-001] Required Fields
+
+<!-- rtk-requirement
+{"acceptance_layer":"integration","gate":"pr","environments":["ci"],"evidence":["json","junit"],"required":true,"status":"active"}
+-->
+
+Acceptance: Preserve envelope fields and promoted correlation values.
 
 Every service log line should contain these fields after logger construction:
 
@@ -115,7 +151,7 @@ Avoid:
 logger.Infof("starting service on %s", addr)
 ```
 
-## Common Field Names
+#### Common Field Names
 
 Services should prefer these field names where applicable:
 
@@ -145,7 +181,7 @@ High-cardinality values such as `device_id`, `user_id`, `org_id`,
 ids must stay in the log body and must not be promoted to Loki labels by
 default.
 
-## Journald JSON Message Promotion
+#### Journald JSON Message Promotion
 
 The forwarder must parse journald records whose `MESSAGE` value is a JSON
 object. It must promote known correlation fields from that JSON object into the
@@ -175,7 +211,13 @@ usage meters. Logger events are for admin management, support correlation, and
 billing dispute investigation only. Do not add price, invoice, charge, Product/plan,
 or billing-state fields to logger events.
 
-## Metered Usage Stream
+### [REQ-LOGGER-BILLING-001] Metered Usage Stream
+
+<!-- rtk-requirement
+{"acceptance_layer":"integration","gate":"pr","environments":["ci"],"evidence":["json","junit"],"required":true,"status":"active"}
+-->
+
+Acceptance: Retain isolated immutable billing receipts and complete inbox pages.
 
 The logger deployment also provides a logically isolated `billing_usage`
 stream for periodic metering snapshots. This stream is not the operational
@@ -195,7 +237,7 @@ The logger must preserve at-least-once delivery and stable event identity for
 billing usage. It must not calculate prices, invoices, quotas, or plan
 entitlements.
 
-### Durable billing inbox and collection
+#### Durable billing inbox and collection
 
 Billing snapshots use a dedicated retained local bbolt inbox, not the operational
 Loki store or its process-local deduplication map. A synchronous transaction
@@ -244,7 +286,13 @@ the retained inbox, then deploying the receiver and cursor consumer together.
 Existing Loki billing records are not automatically imported or asserted to be
 complete. Never discard a queue or advance a cursor to bypass reconciliation.
 
-## Query API Behavior
+### [REQ-LOGGER-QUERY-001] Query API Behavior
+
+<!-- rtk-requirement
+{"acceptance_layer":"integration","gate":"pr","environments":["ci"],"evidence":["json","junit"],"required":true,"status":"active"}
+-->
+
+Acceptance: Filter and order operational queries without billing leakage.
 
 `GET /v1/logs` is the Cloud Admin and support query surface. It must support the
 same low-cardinality and post-filter query fields as `EventQuery` while keeping
@@ -262,7 +310,13 @@ Storage implementations should apply filters first, then sort, then apply the
 limit. Loki-backed implementations must keep high-cardinality fields in
 post-filtering rather than promoting them into selector labels.
 
-## HTTP Request Logging
+### [REQ-LOGGER-HTTP-001] HTTP Request Logging
+
+<!-- rtk-requirement
+{"acceptance_layer":"integration","gate":"pr","environments":["ci"],"evidence":["json","junit"],"required":true,"status":"active"}
+-->
+
+Acceptance: Emit sanitized request metadata without request bodies.
 
 HTTP middleware provided by or implemented according to this module should emit
 one event per completed request:
@@ -300,7 +354,13 @@ Sensitive query parameter names include at least:
 - `password`
 - `client_secret`
 
-## Redaction Policy
+### [REQ-LOGGER-REDACTION-001] Redaction Policy
+
+<!-- rtk-requirement
+{"acceptance_layer":"integration","gate":"pr","environments":["ci"],"evidence":["json","junit"],"required":true,"status":"active"}
+-->
+
+Acceptance: Remove secrets before operational persistence.
 
 Application logs must not contain runtime secrets unless an explicit local/eval
 adapter is intentionally designed for that purpose.
@@ -320,7 +380,13 @@ Never log:
 Where a value is useful for correlation but sensitive, services should log a
 stable hash or redacted marker instead of the raw value.
 
-## Deployment Model
+### [REQ-LOGGER-DEPLOYMENT-001] Deployment Model
+
+<!-- rtk-requirement
+{"acceptance_layer":"integration","gate":"pr","environments":["ci"],"evidence":["json","junit"],"required":true,"status":"active"}
+-->
+
+Acceptance: Keep application logging independent of remote collectors.
 
 The expected production-like log architecture is:
 
@@ -346,7 +412,13 @@ Recommended deployment roles:
 This Go module must not push logs directly to Loki, CloudWatch, or any remote
 backend. Shipping is an infrastructure concern.
 
-## Forwarder And Ingest Operations
+### [REQ-LOGGER-DELIVERY-001] Forwarder And Ingest Operations
+
+<!-- rtk-requirement
+{"acceptance_layer":"integration","gate":"pr","environments":["ci"],"evidence":["json","junit"],"required":true,"status":"active"}
+-->
+
+Acceptance: Persist forwarding progress and bound retries and ingestion.
 
 Forwarders should expose local status for readiness scripts and deployment
 monitoring. The status surface should report current cursor, last upload time,
@@ -368,7 +440,13 @@ Server-side redaction must recurse through nested maps and arrays preserved in
 event `fields` so sensitive keys or secret-bearing strings are not stored inside
 structured payloads.
 
-## Loki Label Guidance
+### [REQ-LOGGER-CARDINALITY-001] Loki Label Guidance
+
+<!-- rtk-requirement
+{"acceptance_layer":"integration","gate":"pr","environments":["ci"],"evidence":["json","junit"],"required":true,"status":"active"}
+-->
+
+Acceptance: Keep high-cardinality identifiers out of Loki labels.
 
 Default Loki labels should be low-cardinality:
 
@@ -391,7 +469,13 @@ Do not use these as default labels:
 
 Those values can remain searchable in log bodies.
 
-## Integration Expectations
+### [REQ-LOGGER-INTEGRATION-001] Integration Expectations
+
+<!-- rtk-requirement
+{"acceptance_layer":"integration","gate":"pr","environments":["ci"],"evidence":["json","junit"],"required":true,"status":"active"}
+-->
+
+Acceptance: Adopt shared logging without changing business interfaces.
 
 Service repositories should import this module and construct a root logger in
 their operational entrypoints.
@@ -415,7 +499,7 @@ Libraries and internal packages should accept `*zap.Logger` from callers rather
 than constructing their own root logger. Tests should use `cloudlogger.Nop()` or
 `zaptest/observer` when asserting output.
 
-## Compatibility
+#### Compatibility
 
 The first migration from existing service logs to this module is allowed to
 change log format from plain text or `slog` text to JSON.
@@ -429,7 +513,7 @@ The migration must not change:
 - device runtime log ingestion semantics
 - audit event persistence semantics
 
-## Acceptance Criteria
+#### Acceptance Criteria
 
 A service repository has completed logger integration when:
 
