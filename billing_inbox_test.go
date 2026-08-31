@@ -374,6 +374,13 @@ func TestBillingCredentialCannotBypassWithEmptyOrMixedStream(t *testing.T) {
 	s := testBillingInbox(t)
 	ops := NewMemoryEventStore()
 	h := IngestHandler(ops, IngestConfig{Token: "ops", BillingToken: "bill", BillingInbox: s})
+	req := httptest.NewRequest("POST", "/v1/logs/ingest", strings.NewReader(`{"events":[]} {}`))
+	req.Header.Set("Authorization", "Bearer bill")
+	recorder := httptest.NewRecorder()
+	h.ServeHTTP(recorder, req)
+	if recorder.Code != 400 {
+		t.Fatal("trailing JSON accepted", recorder.Code)
+	}
 	for _, test := range []struct {
 		token string
 		event LogEvent

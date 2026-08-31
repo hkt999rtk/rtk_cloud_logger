@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -97,6 +98,11 @@ rtk_cloud_logger_up 1
 			http.Error(w, "too many events", http.StatusBadRequest)
 			return
 		}
+		var trailing any
+		if err := decoder.Decode(&trailing); err != io.EOF {
+			http.Error(w, "invalid trailing json", http.StatusBadRequest)
+			return
+		}
 		response := IngestResponse{Results: make([]IngestResult, 0, len(request.Events))}
 		for _, event := range request.Events {
 			result := IngestResult{EventID: event.EventID}
@@ -168,6 +174,7 @@ rtk_cloud_logger_up 1
 		}{Events: visible})
 	})
 	mux.HandleFunc("/v1/billing-usage/events", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-store")
 		if r.Method != http.MethodGet {
 			http.Error(w, "method not allowed", 405)
 			return

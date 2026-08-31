@@ -247,6 +247,10 @@ time, environment, stream or source are rejected; deployment host/version metada
 may change on retry but do not replace the original stored event. Quantities are
 decoded as JSON numbers without a float64 round trip. Financial fields requiring
 redaction are rejected rather than silently transformed.
+Each event is bounded to 1 MiB and each page to 8 MiB of encoded stored records,
+in addition to the 1000-record limit. A byte-limited page retains `has_more` and
+its fixed horizon; it is not a complete result simply because it has fewer
+records than the requested limit. Billing page responses are `no-store`.
 
 The inbox has a persisted random store identity and monotonically committed
 receipt sequence. `GET /v1/billing-usage/events` reads this sequence using an
