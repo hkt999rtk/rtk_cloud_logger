@@ -247,6 +247,10 @@ time, environment, stream or source are rejected; deployment host/version metada
 may change on retry but do not replace the original stored event. Quantities are
 decoded as JSON numbers without a float64 round trip. Financial fields requiring
 redaction are rejected rather than silently transformed.
+Before hashing or storage, structured financial fields are JSON-round-tripped
+with exact `json.Number` values. This gives producer structs and restart-restored
+maps the same canonical representation and prevents field declaration order
+from changing a receipt digest.
 Each event is bounded to 1 MiB and each page to 8 MiB of encoded stored records,
 in addition to the 1000-record limit. A byte-limited page retains `has_more` and
 its fixed horizon; it is not a complete result simply because it has fewer

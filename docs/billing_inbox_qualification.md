@@ -9,6 +9,8 @@ preserves a random store identity, freezes each paginated high-water horizon,
 collects late events in the next horizon and rejects sequence gaps, foreign or
 ahead cursors, missing/replaced/unsafe storage, corrupt receipts and conflicting
 replays. It never initializes missing storage unless explicitly requested.
+Structured producer fields are normalized to an exact JSON-number map before
+hashing, so a restart does not change their digest or round large integers.
 
 The dedicated billing credential cannot read or write operational logs, and
 operational support queries exclude historical billing-stream records. Ingest

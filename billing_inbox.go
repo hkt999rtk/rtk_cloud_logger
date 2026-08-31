@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sync"
@@ -165,6 +166,17 @@ func billingBinding(event LogEvent) (LogEvent, string, error) {
 	if event.Stream != "billing_usage" || event.Source != "billing_usage" || event.Fields["usage_event"] == nil {
 		return event, "", errors.New("billing usage envelope required")
 	}
+	fieldsJSON, err := json.Marshal(event.Fields)
+	if err != nil {
+		return event, "", err
+	}
+	decoder := json.NewDecoder(bytes.NewReader(fieldsJSON))
+	decoder.UseNumber()
+	var canonicalFields map[string]any
+	if err = decoder.Decode(&canonicalFields); err != nil || decoder.Decode(new(any)) != io.EOF {
+		return event, "", errors.New("invalid billing fields")
+	}
+	event.Fields = canonicalFields
 	encoded, err := json.Marshal(event)
 	if err != nil || len(encoded) > 1<<20 || len(event.EventID) > 4096 {
 		return event, "", errors.New("invalid or oversized billing event")

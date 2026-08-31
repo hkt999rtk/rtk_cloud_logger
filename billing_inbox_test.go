@@ -109,6 +109,38 @@ func TestBillingInboxConcurrentReplayAndConflicts(t *testing.T) {
 	}
 }
 
+func TestBillingInboxCanonicalizesStructuredFinancialFieldsAcrossRestart(t *testing.T) {
+	ctx := context.Background()
+	s := testBillingInbox(t)
+	e := billingEvent("structured")
+	e.Fields = map[string]any{"usage_event": struct {
+		UsageID  string `json:"usage_id"`
+		Quantity uint64 `json:"quantity"`
+	}{e.EventID, 9007199254740993}}
+	if err := s.InsertEvent(ctx, e); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+	s2, err := OpenBillingInbox(s.path, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s2.Close()
+	page, err := s2.Page(ctx, "", 10)
+	if err != nil || len(page.Records) != 1 {
+		t.Fatal(page, err)
+	}
+	usageFields := page.Records[0].Event.Fields["usage_event"].(map[string]any)
+	if usageFields["quantity"].(json.Number).String() != "9007199254740993" {
+		t.Fatal("financial integer rounded")
+	}
+	if err := s2.InsertEvent(ctx, e); !errors.Is(err, ErrDuplicateEvent) {
+		t.Fatal("structured replay conflicted", err)
+	}
+}
+
 func TestBillingInboxPagesStableHorizonAndLateEvents(t *testing.T) {
 	ctx := context.Background()
 	s := testBillingInbox(t)
