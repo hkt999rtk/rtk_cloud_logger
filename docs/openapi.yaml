@@ -1,4 +1,8 @@
 openapi: 3.1.0
+x-rtk-spec:
+  id: SPEC-LOGGER-OPENAPI
+  status: normative
+  owner: rtk_cloud_logger
 info:
   title: RTK Cloud Logger API
   version: 0.1.0
@@ -15,6 +19,8 @@ paths:
   /v1/billing-usage/events:
     get:
       operationId: listBillingUsageInbox
+      x-rtk-feature-id: FEAT-CONTRACT-MULTICLOUD-001
+      x-rtk-requirement-ids: [REQ-MULTICLOUD-HANDOFF-001]
       summary: Read a stable committed billing inbox horizon
       description: >
         Requires the dedicated billing credential. Records are ordered by
@@ -64,6 +70,8 @@ paths:
       summary: Health check
       description: Reports whether the logger backend HTTP process is alive.
       operationId: getHealth
+      x-rtk-feature-id: FEAT-CONTRACT-SERVICE-LOGGING-001
+      x-rtk-requirement-ids: [REQ-CONTRACT-LOGGING-DELIVERY-001]
       security: []
       responses:
         "204":
@@ -73,6 +81,8 @@ paths:
       summary: Prometheus metrics
       description: Exposes low-cardinality Cloud Logger backend metrics for private Prometheus scraping.
       operationId: getPrometheusMetrics
+      x-rtk-feature-id: FEAT-CONTRACT-SERVICE-LOGGING-001
+      x-rtk-requirement-ids: [REQ-CONTRACT-LOGGING-DELIVERY-001]
       security: []
       responses:
         "200":
@@ -98,6 +108,8 @@ paths:
         accidental oversized forwarder uploads. The reference handler defaults
         to a 10 MiB request body limit and 1000 events per batch.
       operationId: ingestLogs
+      x-rtk-feature-id: FEAT-CONTRACT-SERVICE-LOGGING-001
+      x-rtk-requirement-ids: [REQ-CONTRACT-LOGGING-DELIVERY-001]
       requestBody:
         required: true
         content:
@@ -163,6 +175,8 @@ paths:
         Loki-style labels. Results are bounded by `limit` and ordered by event
         timestamp using `order`.
       operationId: queryLogs
+      x-rtk-feature-id: FEAT-CONTRACT-SERVICE-LOGGING-001
+      x-rtk-requirement-ids: [REQ-CONTRACT-LOGGING-DELIVERY-001]
       parameters:
         - $ref: "#/components/parameters/Since"
         - $ref: "#/components/parameters/Until"
