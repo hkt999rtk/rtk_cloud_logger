@@ -170,8 +170,8 @@ evidence only. Do not store prices, invoice ids, charge amounts, Product/plan
 decisions, or billing state in logger events.
 
 The detailed backend and forwarder handoff is documented in
-[`docs/CENTRAL_LOGGING_ARCHITECTURE.md`](docs/CENTRAL_LOGGING_ARCHITECTURE.md).
-The low-level package policy is documented in [`docs/SPEC.md`](docs/SPEC.md).
+[`docs/central_logging_architecture.md`](docs/central_logging_architecture.md).
+The low-level package policy is documented in [`docs/spec.md`](docs/spec.md).
 The logger backend HTTP contract is documented in
 [`docs/openapi.yaml`](docs/openapi.yaml).
 
