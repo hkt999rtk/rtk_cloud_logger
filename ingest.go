@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -23,6 +24,7 @@ const (
 type IngestConfig struct {
 	Token             string
 	BillingToken      string
+	BillingInbox      *BillingInbox
 	MaxBodyBytes      int64
 	MaxEventsPerBatch int
 }
@@ -47,6 +49,10 @@ func IngestHandler(store EventStore, cfg IngestConfig) http.Handler {
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
+		if cfg.BillingToken != "" && cfg.BillingInbox.Health(r.Context()) != nil {
+			http.Error(w, "billing inbox unavailable", http.StatusServiceUnavailable)
+			return
+		}
 		if checker, ok := store.(HealthChecker); ok {
 			if err := checker.Health(r.Context()); err != nil {
 				http.Error(w, "backend unavailable", http.StatusServiceUnavailable)
@@ -77,7 +83,9 @@ rtk_cloud_logger_up 1
 			return
 		}
 		var request IngestRequest
-		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxBodyBytes(cfg))).Decode(&request); err != nil {
+		decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxBodyBytes(cfg)))
+		decoder.UseNumber() // financial quantities must not round through float64
+		if err := decoder.Decode(&request); err != nil {
 			var maxErr *http.MaxBytesError
 			if errors.As(err, &maxErr) {
 				http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
@@ -90,16 +98,29 @@ rtk_cloud_logger_up 1
 			http.Error(w, "too many events", http.StatusBadRequest)
 			return
 		}
+		var trailing any
+		if err := decoder.Decode(&trailing); err != io.EOF {
+			http.Error(w, "invalid trailing json", http.StatusBadRequest)
+			return
+		}
 		response := IngestResponse{Results: make([]IngestResult, 0, len(request.Events))}
 		for _, event := range request.Events {
 			result := IngestResult{EventID: event.EventID}
-			if event.Stream == "billing_usage" && cfg.BillingToken != "" && authToken != cfg.BillingToken {
+			billing := event.Stream == "billing_usage" || event.Source == "billing_usage"
+			if billing && (!billingAuthorized(cfg, authToken) || event.Stream != "billing_usage" || event.Source != "billing_usage") {
 				result.Status = IngestStatusRejected
 				result.Error = "billing usage token required"
 				response.Results = append(response.Results, result)
 				continue
 			}
-			err := store.InsertEvent(r.Context(), event)
+			var err error
+			if billing {
+				err = cfg.BillingInbox.InsertEvent(r.Context(), event)
+			} else if cfg.BillingToken != "" && authToken == cfg.BillingToken {
+				err = errors.New("billing credential cannot write operational logs")
+			} else {
+				err = store.InsertEvent(r.Context(), event)
+			}
 			switch {
 			case err == nil:
 				result.Status = IngestStatusAccepted
@@ -130,7 +151,7 @@ rtk_cloud_logger_up 1
 			http.Error(w, "invalid query parameter: "+err.Error(), http.StatusBadRequest)
 			return
 		}
-		if query.Stream == "billing_usage" && cfg.BillingToken != "" && authToken != cfg.BillingToken {
+		if (cfg.BillingToken != "" && authToken == cfg.BillingToken) || query.Stream == "billing_usage" || query.Source == "billing_usage" {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
@@ -139,10 +160,51 @@ rtk_cloud_logger_up 1
 			http.Error(w, "query failed", http.StatusInternalServerError)
 			return
 		}
+		// Historical billing records in an operational backend are not exposed
+		// by unfiltered/support queries or treated as complete financial input.
+		visible := make([]LogEvent, 0, len(events))
+		for _, event := range events {
+			if event.Stream != "billing_usage" && event.Source != "billing_usage" {
+				visible = append(visible, event)
+			}
+		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(struct {
 			Events []LogEvent `json:"events"`
-		}{Events: events})
+		}{Events: visible})
+	})
+	mux.HandleFunc("/v1/billing-usage/events", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-store")
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", 405)
+			return
+		}
+		if !billingAuthorized(cfg, bearerToken(r.Header.Get("Authorization"))) {
+			http.Error(w, "unauthorized", 401)
+			return
+		}
+		for key := range r.URL.Query() {
+			if key != "cursor" && key != "limit" {
+				http.Error(w, "unsupported billing query", 400)
+				return
+			}
+		}
+		limit, err := parseQueryLimit(r.URL.Query().Get("limit"))
+		if err != nil {
+			http.Error(w, "invalid limit", 400)
+			return
+		}
+		page, err := cfg.BillingInbox.Page(r.Context(), r.URL.Query().Get("cursor"), limit)
+		if errors.Is(err, ErrBillingCursor) {
+			http.Error(w, "invalid billing cursor", 409)
+			return
+		}
+		if err != nil {
+			http.Error(w, "billing inbox unavailable", 503)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(page)
 	})
 	return mux
 }
@@ -151,7 +213,11 @@ func authorizedToken(cfg IngestConfig, token string) bool {
 	if cfg.Token == "" && cfg.BillingToken == "" {
 		return true
 	}
-	return token == cfg.Token || token == cfg.BillingToken
+	return (cfg.Token != "" && token == cfg.Token) || (cfg.BillingToken != "" && token == cfg.BillingToken)
+}
+
+func billingAuthorized(cfg IngestConfig, token string) bool {
+	return cfg.BillingToken != "" && cfg.BillingToken != cfg.Token && token == cfg.BillingToken
 }
 
 func maxBodyBytes(cfg IngestConfig) int64 {

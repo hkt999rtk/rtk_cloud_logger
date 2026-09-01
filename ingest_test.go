@@ -58,9 +58,12 @@ func TestIngestHandlerRejectsUnauthenticatedRequests(t *testing.T) {
 
 func TestIngestHandlerRequiresDedicatedBillingToken(t *testing.T) {
 	store := NewMemoryEventStore()
-	handler := IngestHandler(store, IngestConfig{Token: "operational", BillingToken: "billing"})
+	inbox := testBillingInbox(t)
+	handler := IngestHandler(store, IngestConfig{Token: "operational", BillingToken: "billing", BillingInbox: inbox})
 	event := queryTestEvent("billing-event", time.Date(2026, 7, 12, 1, 0, 0, 0, time.UTC))
 	event.Stream = "billing_usage"
+	event.Source = "billing_usage"
+	event.Fields = map[string]any{"usage_event": map[string]any{"usage_id": "billing-event"}}
 	response := postIngest(t, handler, "operational", IngestRequest{Events: []LogEvent{event}})
 	if response.StatusCode != http.StatusAccepted {
 		t.Fatalf("status = %d, want accepted response", response.StatusCode)
@@ -73,7 +76,8 @@ func TestIngestHandlerRequiresDedicatedBillingToken(t *testing.T) {
 		t.Fatalf("response=%+v stored=%d", body.Results, store.Count())
 	}
 	response = postIngest(t, handler, "billing", IngestRequest{Events: []LogEvent{event}})
-	if response.StatusCode != http.StatusAccepted || store.Count() != 1 {
+	page, err := inbox.Page(context.Background(), "", 100)
+	if response.StatusCode != http.StatusAccepted || err != nil || len(page.Records) != 1 || store.Count() != 0 {
 		t.Fatalf("billing response=%d stored=%d", response.StatusCode, store.Count())
 	}
 }
