@@ -229,3 +229,18 @@ func lokiTestEvent() LogEvent {
 func strconvTime(t time.Time) string {
 	return strconv.FormatInt(t.UnixNano(), 10)
 }
+
+func TestDeviceLogRetentionTierIsOnlyLowCardinalityLabel(t *testing.T) {
+	for _, tc := range []struct {
+		days any
+		want string
+	}{{7, "7d"}, {30, "30d"}, {90, "90d"}} {
+		labels := lokiLabels(LogEvent{Source: "device-runtime", DeviceID: "unique-device", Fields: map[string]any{"product_id": "unique-product", "retention_days_snapshot": tc.days}})
+		if labels["retention_tier"] != tc.want || labels["product_id"] != "" || labels["device_id"] != "" {
+			t.Fatalf("labels=%v", labels)
+		}
+	}
+	if labels := lokiLabels(LogEvent{Source: "journald"}); labels["retention_tier"] != "" {
+		t.Fatalf("operational log labeled as device log: %v", labels)
+	}
+}

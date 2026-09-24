@@ -198,6 +198,16 @@ func lokiLabels(event LogEvent) map[string]string {
 	if event.Stream != "" {
 		labels["stream"] = event.Stream
 	}
+	if event.Source == "device-runtime" || event.Source == "device-legacy" {
+		tier := "7d"
+		switch event.Fields["retention_days_snapshot"] {
+		case 30, float64(30), json.Number("30"):
+			tier = "30d"
+		case 90, float64(90), json.Number("90"):
+			tier = "90d"
+		}
+		labels["retention_tier"] = tier
+	}
 	return labels
 }
 
