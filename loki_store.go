@@ -199,14 +199,23 @@ func lokiLabels(event LogEvent) map[string]string {
 		labels["stream"] = event.Stream
 	}
 	if event.Source == "device-runtime" || event.Source == "device-legacy" {
-		tier := "7d"
+		// Legacy events without an immutable Product retention snapshot must stay
+		// outside Loki's tiered Compactor selectors.
+		var tier string
 		switch event.Fields["retention_days_snapshot"] {
-		case 30, float64(30), json.Number("30"):
+		case 7, int64(7), float64(7), json.Number("7"):
+			tier = "7d"
+		case 30, int64(30), float64(30), json.Number("30"):
 			tier = "30d"
-		case 90, float64(90), json.Number("90"):
+		case 90, int64(90), float64(90), json.Number("90"):
 			tier = "90d"
 		}
-		labels["retention_tier"] = tier
+		if tier != "" {
+			labels["retention_tier"] = tier
+			// Distinguish newly versioned Product logs from historical streams
+			// that the earlier writer labeled with a default 7d tier.
+			labels["retention_policy"] = "product-grant-v1"
+		}
 	}
 	return labels
 }
