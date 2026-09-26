@@ -231,16 +231,25 @@ func strconvTime(t time.Time) string {
 }
 
 func TestDeviceLogRetentionTierIsOnlyLowCardinalityLabel(t *testing.T) {
-	for _, tc := range []struct {
-		days any
-		want string
-	}{{7, "7d"}, {30, "30d"}, {90, "90d"}} {
-		labels := lokiLabels(LogEvent{Source: "device-runtime", DeviceID: "unique-device", Fields: map[string]any{"product_id": "unique-product", "retention_days_snapshot": tc.days}})
-		if labels["retention_tier"] != tc.want || labels["product_id"] != "" || labels["device_id"] != "" {
-			t.Fatalf("labels=%v", labels)
+	for _, source := range []string{"device-runtime", "device-legacy"} {
+		for _, tc := range []struct {
+			days any
+			want string
+		}{{7, "7d"}, {float64(30), "30d"}, {json.Number("90"), "90d"}} {
+			labels := lokiLabels(LogEvent{Source: source, DeviceID: "unique-device", Fields: map[string]any{"product_id": "unique-product", "retention_days_snapshot": tc.days}})
+			if labels["retention_tier"] != tc.want || labels["retention_policy"] != "product-grant-v1" ||
+				labels["product_id"] != "" || labels["device_id"] != "" {
+				t.Fatalf("source=%q days=%v labels=%v", source, tc.days, labels)
+			}
+		}
+		for _, fields := range []map[string]any{nil, {"retention_days_snapshot": 0}, {"retention_days_snapshot": 15}, {"retention_days_snapshot": "7"}} {
+			labels := lokiLabels(LogEvent{Source: source, Fields: fields})
+			if labels["retention_tier"] != "" || labels["retention_policy"] != "" {
+				t.Fatalf("unversioned device log received retention policy: source=%q fields=%v labels=%v", source, fields, labels)
+			}
 		}
 	}
-	if labels := lokiLabels(LogEvent{Source: "journald"}); labels["retention_tier"] != "" {
+	if labels := lokiLabels(LogEvent{Source: "journald"}); labels["retention_tier"] != "" || labels["retention_policy"] != "" {
 		t.Fatalf("operational log labeled as device log: %v", labels)
 	}
 }
