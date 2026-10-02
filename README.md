@@ -7,6 +7,9 @@ entrypoints across the RTK cloud repositories. It also owns the central logging
 architecture: journald forwarder, ingest API, storage/query backend contract,
 redaction policy, and operational runbook.
 
+Object Storage bucket names, object-key families, ownership, and retention follow the
+workspace [Object Storage policy](https://github.com/hkt999rtk/rtk_cloud_workspace/blob/main/docs/object-storage-policy.md). The link also works from a standalone checkout.
+
 ## Defaults
 
 - backend: `go.uber.org/zap`
