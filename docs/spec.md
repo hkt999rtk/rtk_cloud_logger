@@ -286,7 +286,19 @@ storage. One process exclusively owns each inbox file; retain it on a stable
 volume and route its producers/consumer to that same store identity. Do not
 deploy independent randomly balanced inbox replicas as though they form one
 stream. HA routing, volume restore/archival and throughput require release
-qualification. No automatic receipt/event eviction is implemented. PostgreSQL
+qualification. No automatic receipt/event eviction is implemented. Explicit
+v2 migration and the disabled-by-default lifecycle controls described in
+[Billing raw-data lifecycle](billing-lifecycle.md) provide encrypted bounded
+capture, independent verification, archive cache replay, financially fenced
+retirement and online generation compaction. Trusted age is internal acceptance
+time, never producer time; legacy age starts at completed online migration.
+Every retired body remains cloud-backed with retained self-contained dedupe and
+original-byte bindings. Cloud TTL is not enabled. Recovery of an old copy must
+start in persistent recovery admission mode and be independently approved against
+the external allocation frontier and consumer checkpoints; it is not a rollback.
+The ≤1-second compaction queue and 24-hour protected-horizon/4-hour recovery
+objectives remain release qualifications, not established production guarantees.
+PostgreSQL
 remains off the per-log path; only validated batch facts are persisted there.
 
 Cutover requires freezing/draining and reconciling the old stream, provisioning

@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/hkt999rtk/rtk_cloud_logger/billingarchive"
 	"io"
 	"os"
 	"path/filepath"
@@ -21,9 +22,10 @@ import (
 )
 
 var (
-	ErrBillingConflict    = errors.New("billing event identity conflicts with stored content")
-	ErrBillingCursor      = errors.New("invalid billing inbox cursor or store identity")
-	ErrBillingUnavailable = errors.New("billing inbox unavailable")
+	ErrBillingConflict           = errors.New("billing event identity conflicts with stored content")
+	ErrBillingCursor             = errors.New("invalid billing inbox cursor or store identity")
+	ErrBillingUnavailable        = errors.New("billing inbox unavailable")
+	ErrBillingArchiveUnavailable = errors.New("billing archive range is not rehydrated")
 )
 
 type BillingRecord struct {
@@ -50,11 +52,19 @@ type billingCursor struct {
 // billing ledger. The database transaction commits the event and receipt/index
 // together. No retention, deletion or automatic reinitialization is permitted.
 type BillingInbox struct {
-	mu     sync.RWMutex
-	failed bool
-	db     *bolt.DB
-	path   string
-	info   os.FileInfo
+	mu           sync.RWMutex
+	failed       bool
+	db           *bolt.DB
+	path         string
+	info         os.FileInfo
+	anchor       string
+	closed       bool
+	recovering   bool
+	lifecycle    LifecycleConfig
+	compactMu    sync.Mutex
+	workerMu     sync.Mutex
+	captureMu    sync.Mutex
+	workerStatus WorkerStatus
 }
 
 func OpenBillingInbox(path string, initialize bool) (*BillingInbox, error) {
@@ -68,6 +78,15 @@ func OpenBillingInbox(path string, initialize bool) (*BillingInbox, error) {
 	}
 	// macOS /tmp is itself a system symlink; use the resolved parent thereafter.
 	path = filepath.Join(resolved, filepath.Base(path))
+	anchor := path
+	manifestPath, manifestErr := loadActivePath(anchor)
+	if manifestErr != nil {
+		return nil, ErrBillingUnavailable
+	}
+	if manifestPath != "" {
+		path = manifestPath
+		initialize = false
+	}
 	d, err := os.Stat(resolved)
 	if err != nil || !d.IsDir() || d.Mode().Perm()&0077 != 0 {
 		return nil, ErrBillingUnavailable
@@ -80,7 +99,7 @@ func OpenBillingInbox(path string, initialize bool) (*BillingInbox, error) {
 	if !creating && (err != nil || !prior.Mode().IsRegular() || prior.Size() == 0 || prior.Mode().Perm()&0077 != 0) {
 		return nil, ErrBillingUnavailable
 	}
-	db, err := bolt.Open(path, 0600, &bolt.Options{Timeout: 100 * time.Millisecond})
+	db, err := bolt.Open(path, 0600, &bolt.Options{Timeout: 100 * time.Millisecond, InitialMmapSize: 128 << 30})
 	if err != nil {
 		return nil, ErrBillingUnavailable
 	}
@@ -90,8 +109,17 @@ func OpenBillingInbox(path string, initialize bool) (*BillingInbox, error) {
 			if tx.Bucket([]byte("meta")) == nil || tx.Bucket([]byte("events")) == nil || tx.Bucket([]byte("ids")) == nil {
 				return ErrBillingUnavailable
 			}
-			if len(tx.Bucket([]byte("meta")).Get([]byte("identity"))) != 32 || string(tx.Bucket([]byte("meta")).Get([]byte("version"))) != "1" {
+			version := string(tx.Bucket([]byte("meta")).Get([]byte("version")))
+			if len(tx.Bucket([]byte("meta")).Get([]byte("identity"))) != 32 || (version != "1" && version != "2-migrating" && version != "2") {
 				return ErrBillingUnavailable
+			}
+			if string(tx.Bucket([]byte("meta")).Get([]byte("manifest_required"))) == "1" && manifestPath == "" {
+				return ErrBillingUnavailable
+			}
+			if manifestPath != "" {
+				if err := validateActiveManifest(anchor, tx); err != nil {
+					return err
+				}
 			}
 			return nil
 		}
@@ -126,13 +154,34 @@ func OpenBillingInbox(path string, initialize bool) (*BillingInbox, error) {
 	if err != nil {
 		return fail()
 	}
-	return &BillingInbox{db: db, path: path, info: info}, nil
+	s := &BillingInbox{db: db, path: path, anchor: anchor, info: info}
+	db.View(func(tx *bolt.Tx) error {
+		s.recovering = string(tx.Bucket([]byte("meta")).Get([]byte("recovery_fence"))) == "1"
+		return nil
+	})
+	// No compactor survives a process restart. The durable active manifest is
+	// authoritative; an interrupted candidate is never selected by filename.
+	if err := s.update(func(t *mutationTx) error {
+		if t.tx.Bucket([]byte("meta")).Get([]byte("compaction_session")) == nil {
+			return nil
+		}
+		return t.del("meta", []byte("compaction_session"))
+	}); err != nil {
+		return fail()
+	}
+	return s, nil
 }
 
 func (s *BillingInbox) Close() error {
 	if s == nil {
 		return nil
 	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed {
+		return nil
+	}
+	s.closed = true
 	return s.db.Close()
 }
 
@@ -140,13 +189,12 @@ func (s *BillingInbox) Health(ctx context.Context) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if s == nil || s.db == nil {
+	if s == nil {
 		return ErrBillingUnavailable
 	}
 	s.mu.RLock()
-	failed := s.failed
-	s.mu.RUnlock()
-	if failed {
+	defer s.mu.RUnlock()
+	if s.failed || s.closed || s.recovering || s.db == nil {
 		return ErrBillingUnavailable
 	}
 	info, err := os.Lstat(s.path)
@@ -221,15 +269,29 @@ func (s *BillingInbox) InsertEvent(ctx context.Context, event LogEvent) error {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.failed {
+	if s.failed || s.recovering || s.closed {
 		return ErrBillingUnavailable
 	}
-	err = s.db.Update(func(tx *bolt.Tx) error {
+	err = s.updateLocked(func(t *mutationTx) error {
+		tx := t.tx
 		if err := ctx.Err(); err != nil {
 			return err
 		}
 		ids, events := tx.Bucket([]byte("ids")), tx.Bucket([]byte("events"))
 		if key := ids.Get([]byte(event.EventID)); key != nil {
+			if len(key) != 8 {
+				var binding receiptBinding
+				if json.Unmarshal(key, &binding) != nil || binding.Sequence == 0 || binding.Sequence > events.Sequence() || !validDigest(binding.ContentSHA256) || !validDigest(binding.RecordSHA256) || !bytes.Equal(tx.Bucket([]byte("receipt_ids")).Get(sequenceKey(binding.Sequence)), []byte(event.EventID)) {
+					return ErrBillingUnavailable
+				}
+				if body := events.Get(sequenceKey(binding.Sequence)); body != nil && billingarchive.Digest(body) != binding.RecordSHA256 {
+					return ErrBillingUnavailable
+				}
+				if binding.ContentSHA256 != digest {
+					return ErrBillingConflict
+				}
+				return ErrDuplicateEvent
+			}
 			var previous BillingRecord
 			decoder := json.NewDecoder(bytes.NewReader(events.Get(key)))
 			decoder.UseNumber()
@@ -245,7 +307,7 @@ func (s *BillingInbox) InsertEvent(ctx context.Context, event LogEvent) error {
 			}
 			return ErrDuplicateEvent
 		}
-		seq, err := events.NextSequence()
+		seq, err := t.nextSequence("events")
 		if err != nil || seq == 0 {
 			return ErrBillingUnavailable
 		}
@@ -254,10 +316,21 @@ func (s *BillingInbox) InsertEvent(ctx context.Context, event LogEvent) error {
 			return err
 		}
 		key := sequenceKey(seq)
-		if err := events.Put(key, body); err != nil {
+		if err := t.put("events", key, body); err != nil {
 			return err
 		}
-		return ids.Put([]byte(event.EventID), key)
+		if string(tx.Bucket([]byte("meta")).Get([]byte("version"))) != "1" {
+			received := time.Now().UTC()
+			binding, _ := json.Marshal(receiptBinding{Sequence: seq, ContentSHA256: digest, RecordSHA256: billingarchive.Digest(body)})
+			if err := t.put("ids", []byte(event.EventID), binding); err != nil {
+				return err
+			}
+			if err := t.put("receipt_ids", key, []byte(event.EventID)); err != nil {
+				return err
+			}
+			return t.put("receipt_times", key, []byte(received.Format(time.RFC3339Nano)))
+		}
+		return t.put("ids", []byte(event.EventID), key)
 	})
 	if err != nil && !errors.Is(err, ErrDuplicateEvent) && !errors.Is(err, ErrBillingConflict) && !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
 		s.failed = true // ambiguous storage commits must be inspected/reopened
@@ -287,6 +360,7 @@ func (s *BillingInbox) Page(ctx context.Context, encoded string, limit int) (Bil
 			return page, ErrBillingCursor
 		}
 	}
+	s.mu.RLock()
 	err := s.db.View(func(tx *bolt.Tx) error {
 		page.StoreID = string(tx.Bucket([]byte("meta")).Get([]byte("identity")))
 		events := tx.Bucket([]byte("events"))
@@ -299,14 +373,25 @@ func (s *BillingInbox) Page(ctx context.Context, encoded string, limit int) (Bil
 			cursor.Through = head
 		}
 		page.HighWater = cursor.Through
-		c := events.Cursor()
+		floor := readUint(tx.Bucket([]byte("meta")).Get([]byte("archive_floor")))
 		pageBytes := 0
 		for cursor.After < cursor.Through && len(page.Records) < limit {
 			if err := ctx.Err(); err != nil {
 				return err
 			}
-			key, body := c.Seek(sequenceKey(cursor.After + 1))
-			if len(key) != 8 || binary.BigEndian.Uint64(key) != cursor.After+1 {
+			key := sequenceKey(cursor.After + 1)
+			body := events.Get(key)
+			if body == nil && cursor.After+1 <= floor {
+				cache := tx.Bucket([]byte("archive_cache"))
+				if cache == nil {
+					return ErrBillingArchiveUnavailable
+				}
+				body = cache.Get(key)
+				if body == nil {
+					return ErrBillingArchiveUnavailable
+				}
+			}
+			if body == nil {
 				return ErrBillingUnavailable
 			}
 			if pageBytes+len(body) > 8<<20 && len(page.Records) > 0 {
@@ -321,6 +406,12 @@ func (s *BillingInbox) Page(ctx context.Context, encoded string, limit int) (Bil
 			_, digest, err := billingBinding(record.Event)
 			if err != nil || digest != record.ContentSHA256 {
 				return ErrBillingUnavailable
+			}
+			if bindingBytes := tx.Bucket([]byte("ids")).Get([]byte(record.Event.EventID)); len(bindingBytes) != 8 {
+				var bind receiptBinding
+				if json.Unmarshal(bindingBytes, &bind) != nil || bind.Sequence != record.Sequence || bind.ContentSHA256 != record.ContentSHA256 || bind.RecordSHA256 != billingarchive.Digest(body) {
+					return ErrBillingUnavailable
+				}
 			}
 			page.Records = append(page.Records, record)
 			pageBytes += len(body)
@@ -337,6 +428,7 @@ func (s *BillingInbox) Page(ctx context.Context, encoded string, limit int) (Bil
 		page.NextCursor = base64.RawURLEncoding.EncodeToString(body)
 		return nil
 	})
+	s.mu.RUnlock()
 	if errors.Is(err, ErrBillingUnavailable) {
 		s.mu.Lock()
 		s.failed = true
