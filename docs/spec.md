@@ -309,12 +309,18 @@ complete. Never discard a queue or advance a cursor to bypass reconciliation.
 ### [REQ-LOGGER-RAW-LIFECYCLE-001] Guarded raw-data lifecycle
 
 <!-- rtk-requirement
-{"acceptance_layer":"integration","gate":"pr","environments":["ci"],"evidence":["json","junit"],"required":true,"status":"active"}
+{"acceptance_layer":"integration","operation_model":"workflow","gate":"pr","environments":["ci"],"evidence":["json","junit"],"required":true,"status":"active"}
 -->
 
 Acceptance: Preserve the billing inbox's identity, allocation frontier and
 immutable receipts through explicitly enabled backup, retirement and online
 compaction, with fail-closed verification and recovery boundaries.
+
+The canonical `WF-LOGGER-RAW-PROTECTION-001`, `WF-LOGGER-RAW-ABORT-001` and
+`WF-LOGGER-RAW-RECOVERY-001` in the contracts repository's
+`feature_workflows.yaml` describe the ordered write paths. Status/list reads,
+bounded migration iterations and optional cache access are not substitutes for
+those paths' completed prerequisites or independent approvals.
 
 The opt-in implementation documented in [Billing raw-data lifecycle](billing-lifecycle.md)
 must satisfy these integration obligations:
