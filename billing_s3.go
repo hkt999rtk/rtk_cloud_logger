@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"regexp"
 	"strings"
 	"time"
 
@@ -32,12 +33,22 @@ type S3ArchiveStore struct {
 	client         *http.Client
 }
 
+var billingBucketLabelPattern = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
+
+// Match the workspace bucket policy without changing archive identifier syntax.
+// Registration and provider-region qualification remain activation prerequisites.
+func validBillingBackupBucket(c S3ArchiveConfig) bool {
+	return c.Environment != "shared" && billingBucketLabelPattern.MatchString(c.Environment) &&
+		billingBucketLabelPattern.MatchString(c.Region) && len(c.Bucket) <= 63 &&
+		c.Bucket == "rtk-cloud-"+c.Environment+"-billing-backup-"+c.Region
+}
+
 func NewS3ArchiveStore(c S3ArchiveConfig, access, secret string) (*S3ArchiveStore, error) {
 	if c.SigningRegion == "" {
 		c.SigningRegion = "us-east-1"
 	}
 	u, e := url.Parse(c.Endpoint)
-	if e != nil || u.Scheme != "https" || u.Host == "" || u.User != nil || (u.Path != "" && u.Path != "/") || u.RawQuery != "" || u.Fragment != "" || !billingarchive.SafeID(c.Environment) || !billingarchive.SafeID(c.Region) || !billingarchive.SafeID(c.SigningRegion) || c.Bucket != "rtk-cloud-"+c.Environment+"-billing-backup-"+c.Region || access == "" || secret == "" {
+	if e != nil || u.Scheme != "https" || u.Host == "" || u.User != nil || (u.Path != "" && u.Path != "/") || u.RawQuery != "" || u.Fragment != "" || !validBillingBackupBucket(c) || !billingarchive.SafeID(c.SigningRegion) || access == "" || secret == "" {
 		return nil, errors.New("invalid private environment-scoped backup object store")
 	}
 	return &S3ArchiveStore{c, access, secret, &http.Client{Timeout: 10 * time.Minute, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}, nil
