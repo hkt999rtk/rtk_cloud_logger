@@ -286,8 +286,8 @@ storage. One process exclusively owns each inbox file; retain it on a stable
 volume and route its producers/consumer to that same store identity. Do not
 deploy independent randomly balanced inbox replicas as though they form one
 stream. HA routing, volume restore/archival and throughput require release
-qualification. No automatic receipt/event eviction is implemented. Explicit
-v2 migration and the disabled-by-default lifecycle controls described in
+qualification. Receipt/event retirement is disabled by default and is never an
+unconditional age-based eviction. Explicit v2 migration and the guarded lifecycle controls described in
 [Billing raw-data lifecycle](billing-lifecycle.md) provide encrypted bounded
 capture, independent verification, archive cache replay, financially fenced
 retirement and online generation compaction. Trusted age is internal acceptance
@@ -305,6 +305,51 @@ Cutover requires freezing/draining and reconciling the old stream, provisioning
 the retained inbox, then deploying the receiver and cursor consumer together.
 Existing Loki billing records are not automatically imported or asserted to be
 complete. Never discard a queue or advance a cursor to bypass reconciliation.
+
+### [REQ-LOGGER-RAW-LIFECYCLE-001] Guarded raw-data lifecycle
+
+<!-- rtk-requirement
+{"acceptance_layer":"integration","gate":"pr","environments":["ci"],"evidence":["json","junit"],"required":true,"status":"active"}
+-->
+
+Acceptance: Preserve the billing inbox's identity, allocation frontier and
+immutable receipts through explicitly enabled backup, retirement and online
+compaction, with fail-closed verification and recovery boundaries.
+
+The opt-in implementation documented in [Billing raw-data lifecycle](billing-lifecycle.md)
+must satisfy these integration obligations:
+
+- Online resumable v2 migration preserves stored event bytes, financial digests,
+  StoreID and global sequence. New receipts atomically record internal acceptance
+  time; legacy age begins only at completed migration, never producer time.
+- Consistent captures release the live read transaction before compression or
+  upload and seal bounded, independently encrypted parts under immutable set
+  identity. Resume uses the sealed bytes, not a new encryption of the same set.
+  Independent approved verifier signatures bind the exact manifest, original
+  snapshot, exported receipt bytes and trusted times before catalog promotion.
+- Retired-cursor replay uses a bounded archive cache without changing receipt
+  identity or deduplication. Missing archived bodies return retriable 503 and do
+  not skip receipts; hot gaps and corruption still fail closed.
+- Bounded retirement requires verified coverage, trusted minimum age and a live
+  exact-scope Billing authority operation. Body deletion, archive floor and the
+  immutable terminal receipt commit together; dedupe bindings remain. Authorized
+  abort remains possible when retirement is disabled, including unknown-operation
+  tombstones, and late apply cannot cross an aborted decision.
+- Online generation compaction journals domain mutations while ingestion
+  continues, catches up under bounded limits and publishes only a prevalidated
+  same-filesystem generation through an atomic active manifest. Old readers drain
+  before reclaim; missing manifest or incomplete decision history fails closed.
+- Restored snapshots enter a persistent admission fence. A distinct approved
+  recovery signature must bind restored state and independently qualified
+  allocation/consumer/dependency evidence; no caller boolean or old snapshot
+  rollback resets a consumer cursor or admits writes.
+
+Lifecycle mutation routes exist only on the private listener, with control,
+terminal-read and authority-read credentials separated from ingestion. Backup,
+retirement and compaction are individually disabled by default. The CI evidence
+validates deterministic integration behavior, not an actual >4 GiB archive,
+production load, the ≤1-second queue goal or the 24-hour protection/4-hour recovery
+objectives; those remain deployment qualifications.
 
 ### [REQ-LOGGER-QUERY-001] Query API Behavior
 

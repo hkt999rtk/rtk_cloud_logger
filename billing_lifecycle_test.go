@@ -448,6 +448,10 @@ func TestDisabledRetirementStillAllowsAuthorizedPendingAndUnknownAbort(t *testin
 		if err != nil || !equalJSON(aborted, again) {
 			t.Fatal("terminal abort retry changed receipt", again, err)
 		}
+		byID, err := s.AbortRetirement(ctx, operationID)
+		if err != nil || !equalJSON(aborted, byID) {
+			t.Fatal("terminal abort by ID changed receipt", byID, err)
+		}
 		if _, err := s.ApplyRetirement(ctx, operationID); !errors.Is(err, ErrLifecycleConflict) {
 			t.Fatal("late apply crossed permanent abort tombstone", err)
 		}
@@ -555,5 +559,77 @@ func TestLifecycleHTTPTokenIsolationAndArchiveMiss(t *testing.T) {
 	handler.ServeHTTP(w, r)
 	if w.Code != 200 {
 		t.Fatal(w.Code, w.Body.String())
+	}
+}
+
+func TestLifecyclePrivateRoutesReportStateAndRejectUnsupportedRequests(t *testing.T) {
+	s, _, _, _ := lifecycleInbox(t)
+	migrateAll(t, s)
+	handler := LifecycleHandler(IngestConfig{BillingInbox: s, LifecycleToken: "control"})
+	for _, test := range []struct {
+		method, route, body string
+		status              int
+	}{
+		{http.MethodGet, "migration", "", http.StatusOK},
+		{http.MethodGet, "captures", "", http.StatusOK},
+		{http.MethodGet, "status", "", http.StatusOK},
+		{http.MethodGet, "recovery", "", http.StatusOK},
+		{http.MethodGet, "retire/unknown", "", http.StatusNotFound},
+		{http.MethodGet, "unknown", "", http.StatusNotFound},
+		{http.MethodPost, "unknown", "{}", http.StatusNotFound},
+		{http.MethodPut, "status", "", http.StatusMethodNotAllowed},
+		{http.MethodGet, "status?unsupported=true", "", http.StatusBadRequest},
+		{http.MethodPost, "migrate", "{}", http.StatusOK},
+		{http.MethodPost, "rehydrate", `{"set_id":"unknown","records":[]}`, http.StatusConflict},
+		{http.MethodPost, "cache/evict", `{"through_sequence":"0"}`, http.StatusOK},
+	} {
+		t.Run(test.method+"_"+test.route, func(t *testing.T) {
+			request := httptest.NewRequest(test.method, LifecyclePath+test.route, strings.NewReader(test.body))
+			request.Header.Set("Authorization", "Bearer control")
+			response := httptest.NewRecorder()
+			handler.ServeHTTP(response, request)
+			if response.Code != test.status {
+				t.Fatal(response.Code, response.Body.String())
+			}
+			if response.Header().Get("Cache-Control") != "no-store" {
+				t.Fatal("private lifecycle state was cacheable")
+			}
+		})
+	}
+}
+
+func TestBackupWorkerRecordsFailureAndStopsOnCancellation(t *testing.T) {
+	s, _, _, _ := lifecycleInbox(t)
+	cfg := s.lifecycle
+	cfg.BackupEnabled = false
+	if err := s.ConfigureLifecycle(cfg); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan struct{})
+	go func() {
+		s.RunBackupWorker(ctx)
+		close(done)
+	}()
+	deadline := time.NewTimer(2 * time.Second)
+	defer deadline.Stop()
+	poll := time.NewTicker(time.Millisecond)
+	defer poll.Stop()
+	for s.Worker(context.Background()).LastError == "" {
+		select {
+		case <-deadline.C:
+			t.Fatal("backup worker did not expose its failed capture")
+		case <-poll.C:
+		}
+	}
+	if status := s.Worker(context.Background()); status.State != "idle" || !status.ProtectionOverdue || status.LastAttempt.IsZero() {
+		t.Fatal("failed capture suppressed protection alarm", status)
+	}
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("backup worker did not stop after cancellation")
 	}
 }
