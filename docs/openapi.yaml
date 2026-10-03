@@ -78,6 +78,8 @@ paths:
     servers: [{ url: 'http://127.0.0.1:8081', description: Private lifecycle listener only }]
     get:
       operationId: billingLifecycleMigration
+      x-rtk-feature-id: FEAT-LOGGER-IMPLEMENTATION-001
+      x-rtk-requirement-ids: [REQ-LOGGER-RAW-LIFECYCLE-001]
       summary: Read online migration progress with the isolated controller credential
       security: [{ lifecycleAuth: [] }]
       responses:
@@ -87,6 +89,8 @@ paths:
     servers: [{ url: 'http://127.0.0.1:8081', description: Private lifecycle listener only }]
     post:
       operationId: advanceBillingLifecycleMigration
+      x-rtk-feature-id: FEAT-LOGGER-IMPLEMENTATION-001
+      x-rtk-requirement-ids: [REQ-LOGGER-RAW-LIFECYCLE-001]
       summary: Resume at most 1000 legacy records without stopping intake
       security: [{ lifecycleAuth: [] }]
       requestBody:
@@ -108,6 +112,8 @@ paths:
     servers: [{ url: 'http://127.0.0.1:8081', description: Private lifecycle listener only }]
     post:
       operationId: captureBillingBackup
+      x-rtk-feature-id: FEAT-LOGGER-IMPLEMENTATION-001
+      x-rtk-requirement-ids: [REQ-LOGGER-RAW-LIFECYCLE-001]
       summary: Seal and upload an immutable public-only multipart snapshot and raw export
       security: [{ lifecycleAuth: [] }]
       requestBody: { $ref: '#/components/requestBodies/EmptyLifecycleRequest' }
@@ -120,6 +126,8 @@ paths:
     servers: [{ url: 'http://127.0.0.1:8081', description: Private lifecycle listener only }]
     get:
       operationId: listBillingBackupCaptures
+      x-rtk-feature-id: FEAT-LOGGER-IMPLEMENTATION-001
+      x-rtk-requirement-ids: [REQ-LOGGER-RAW-LIFECYCLE-001]
       security: [{ lifecycleAuth: [] }]
       responses:
         '200': { description: Durable capture states, immutable manifests and pending verification. }
@@ -128,6 +136,8 @@ paths:
     servers: [{ url: 'http://127.0.0.1:8081', description: Private lifecycle listener only }]
     post:
       operationId: acceptBillingBackupVerification
+      x-rtk-feature-id: FEAT-LOGGER-IMPLEMENTATION-001
+      x-rtk-requirement-ids: [REQ-LOGGER-RAW-LIFECYCLE-001]
       summary: Accept an independent Ed25519 completion bound to the exact local manifest
       security: [{ lifecycleAuth: [] }]
       requestBody:
@@ -151,6 +161,8 @@ paths:
     servers: [{ url: 'http://127.0.0.1:8081', description: Private lifecycle listener only }]
     get:
       operationId: billingBackupWorkerStatus
+      x-rtk-feature-id: FEAT-LOGGER-IMPLEMENTATION-001
+      x-rtk-requirement-ids: [REQ-LOGGER-RAW-LIFECYCLE-001]
       summary: Read scoped allocation and retirement frontiers and protected snapshot age
       security: [{ lifecycleAuth: [] }]
       responses:
@@ -160,6 +172,8 @@ paths:
     servers: [{ url: 'http://127.0.0.1:8081', description: Private lifecycle listener only }]
     post:
       operationId: planBillingRawRetirement
+      x-rtk-feature-id: FEAT-LOGGER-IMPLEMENTATION-001
+      x-rtk-requirement-ids: [REQ-LOGGER-RAW-LIFECYCLE-001]
       security: [{ lifecycleAuth: [] }]
       requestBody:
         required: true
@@ -174,6 +188,8 @@ paths:
     servers: [{ url: 'http://127.0.0.1:8081', description: Private lifecycle listener only }]
     post:
       operationId: applyBillingRawRetirement
+      x-rtk-feature-id: FEAT-LOGGER-IMPLEMENTATION-001
+      x-rtk-requirement-ids: [REQ-LOGGER-RAW-LIFECYCLE-001]
       summary: Require live exact ACTIVE Billing authority before an atomic bounded deletion
       security: [{ lifecycleAuth: [] }]
       requestBody:
@@ -195,6 +211,8 @@ paths:
     servers: [{ url: 'http://127.0.0.1:8081', description: Private lifecycle listener only }]
     post:
       operationId: abortBillingRawRetirement
+      x-rtk-feature-id: FEAT-LOGGER-IMPLEMENTATION-001
+      x-rtk-requirement-ids: [REQ-LOGGER-RAW-LIFECYCLE-001]
       summary: Persist a permanent bound tombstone including for an unknown operation
       security: [{ lifecycleAuth: [] }]
       requestBody:
@@ -211,6 +229,8 @@ paths:
     servers: [{ url: 'http://127.0.0.1:8081', description: Private lifecycle listener only }]
     get:
       operationId: readBillingRetirementTerminal
+      x-rtk-feature-id: FEAT-LOGGER-IMPLEMENTATION-001
+      x-rtk-requirement-ids: [REQ-LOGGER-RAW-LIFECYCLE-001]
       summary: Direct authenticated durable terminal receipt used by Billing fence resolution
       security: [{ lifecycleAuth: [] }, { lifecycleReadAuth: [] }]
       parameters:
@@ -231,6 +251,8 @@ paths:
     servers: [{ url: 'http://127.0.0.1:8081', description: Private lifecycle listener only }]
     post:
       operationId: rehydrateBillingArchiveCache
+      x-rtk-feature-id: FEAT-LOGGER-IMPLEMENTATION-001
+      x-rtk-requirement-ids: [REQ-LOGGER-RAW-LIFECYCLE-001]
       summary: Install at most 1000 exact original records against signed catalog and durable byte/receipt bindings
       security: [{ lifecycleAuth: [] }]
       requestBody:
@@ -252,6 +274,8 @@ paths:
     servers: [{ url: 'http://127.0.0.1:8081', description: Private lifecycle listener only }]
     post:
       operationId: evictBillingArchiveCache
+      x-rtk-feature-id: FEAT-LOGGER-IMPLEMENTATION-001
+      x-rtk-requirement-ids: [REQ-LOGGER-RAW-LIFECYCLE-001]
       security: [{ lifecycleAuth: [] }]
       requestBody:
         required: true
@@ -269,6 +293,8 @@ paths:
     servers: [{ url: 'http://127.0.0.1:8081', description: Private lifecycle listener only }]
     post:
       operationId: compactBillingInboxOnline
+      x-rtk-feature-id: FEAT-LOGGER-IMPLEMENTATION-001
+      x-rtk-requirement-ids: [REQ-LOGGER-RAW-LIFECYCLE-001]
       summary: Journalled online generation cutover without Pod stop or HTTP restart
       security: [{ lifecycleAuth: [] }]
       requestBody: { $ref: '#/components/requestBodies/EmptyLifecycleRequest' }
@@ -281,6 +307,8 @@ paths:
     servers: [{ url: 'http://127.0.0.1:8081', description: Private lifecycle listener only }]
     get:
       operationId: readBillingRecoveryState
+      x-rtk-feature-id: FEAT-LOGGER-IMPLEMENTATION-001
+      x-rtk-requirement-ids: [REQ-LOGGER-RAW-LIFECYCLE-001]
       security: [{ lifecycleAuth: [] }]
       responses:
         '200': { description: Restored StoreID/frontier/floor plus operation-history and archive-dependency digests; no external frontier is inferred. }
@@ -289,6 +317,8 @@ paths:
     servers: [{ url: 'http://127.0.0.1:8081', description: Private lifecycle listener only }]
     post:
       operationId: admitBillingInboxRecovery
+      x-rtk-feature-id: FEAT-LOGGER-IMPLEMENTATION-001
+      x-rtk-requirement-ids: [REQ-LOGGER-RAW-LIFECYCLE-001]
       summary: Require an independent recovery custodian signature bound to the exact restored state
       security: [{ lifecycleAuth: [] }]
       requestBody:
