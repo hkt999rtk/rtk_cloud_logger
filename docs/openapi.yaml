@@ -25,7 +25,9 @@ paths:
       description: >
         Requires the dedicated billing credential. Records are ordered by
         inbox commit sequence, not producer time. An omitted cursor starts at
-        the first retained record. Continue next_cursor until has_more is false;
+        logical receipt 1. A retired uncached range requires controller rehydration
+        and returns retryable 503, never an empty successful page.
+        Continue next_cursor until has_more is false;
         polling that final cursor opens a new committed horizon. Persist the
         cursor with validated facts. A complete horizon does not prove producer
         drainage or settlement. Store replacement or sequence gaps fail closed.
@@ -64,7 +66,277 @@ paths:
         '401': { description: Dedicated billing credential required. }
         '405': { description: GET required. }
         '409': { description: 'Malformed cursor, wrong store or restored data behind cursor.' }
-        '503': { description: 'Inbox missing, closed, damaged or unavailable.' }
+        '503':
+          description: 'Inbox missing, closed, damaged, recovery-fenced or archived range not rehydrated. Archive misses do not fail inbox health.'
+          headers:
+            X-Billing-Inbox-State:
+              description: archive-unavailable distinguishes a retryable archived-range miss.
+              schema: { type: string, enum: [archive-unavailable] }
+            Retry-After:
+              schema: { type: string, example: '30' }
+  /v1/internal/billing-lifecycle/migration:
+    servers: [{ url: 'http://127.0.0.1:8081', description: Private lifecycle listener only }]
+    get:
+      operationId: billingLifecycleMigration
+      x-rtk-feature-id: FEAT-LOGGER-IMPLEMENTATION-001
+      x-rtk-requirement-ids: [REQ-LOGGER-RAW-LIFECYCLE-001]
+      summary: Read online migration progress with the isolated controller credential
+      security: [{ lifecycleAuth: [] }]
+      responses:
+        '200': { description: 'Version, StoreID, legacy frontier, bounded backfill progress and conservative age floor.' }
+        '401': { description: Isolated lifecycle credential required. }
+  /v1/internal/billing-lifecycle/migrate:
+    servers: [{ url: 'http://127.0.0.1:8081', description: Private lifecycle listener only }]
+    post:
+      operationId: advanceBillingLifecycleMigration
+      x-rtk-feature-id: FEAT-LOGGER-IMPLEMENTATION-001
+      x-rtk-requirement-ids: [REQ-LOGGER-RAW-LIFECYCLE-001]
+      summary: Resume at most 1000 legacy records without stopping intake
+      security: [{ lifecycleAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                batch: { type: integer, minimum: 1, maximum: 1000, default: 1000 }
+      responses:
+        '200': { description: Durable migration progress. }
+        '400': { description: Strict bounded JSON required. }
+        '401': { description: Isolated lifecycle credential required. }
+        '409': { description: Invalid migration precondition. }
+        '503': { description: Retained storage unavailable. }
+  /v1/internal/billing-lifecycle/capture:
+    servers: [{ url: 'http://127.0.0.1:8081', description: Private lifecycle listener only }]
+    post:
+      operationId: captureBillingBackup
+      x-rtk-feature-id: FEAT-LOGGER-IMPLEMENTATION-001
+      x-rtk-requirement-ids: [REQ-LOGGER-RAW-LIFECYCLE-001]
+      summary: Seal and upload an immutable public-only multipart snapshot and raw export
+      security: [{ lifecycleAuth: [] }]
+      requestBody: { $ref: '#/components/requestBodies/EmptyLifecycleRequest' }
+      responses:
+        '200': { description: 'CaptureStatus with exact base64 manifest and uploaded set. No verification or retirement authorization implied.' }
+        '401': { description: Isolated lifecycle credential required. }
+        '409': { description: Backup disabled or migration incomplete. }
+        '503': { description: Scratch capacity, storage or immutable publication unavailable. }
+  /v1/internal/billing-lifecycle/captures:
+    servers: [{ url: 'http://127.0.0.1:8081', description: Private lifecycle listener only }]
+    get:
+      operationId: listBillingBackupCaptures
+      x-rtk-feature-id: FEAT-LOGGER-IMPLEMENTATION-001
+      x-rtk-requirement-ids: [REQ-LOGGER-RAW-LIFECYCLE-001]
+      security: [{ lifecycleAuth: [] }]
+      responses:
+        '200': { description: Durable capture states, immutable manifests and pending verification. }
+        '401': { description: Isolated lifecycle credential required. }
+  /v1/internal/billing-lifecycle/verify:
+    servers: [{ url: 'http://127.0.0.1:8081', description: Private lifecycle listener only }]
+    post:
+      operationId: acceptBillingBackupVerification
+      x-rtk-feature-id: FEAT-LOGGER-IMPLEMENTATION-001
+      x-rtk-requirement-ids: [REQ-LOGGER-RAW-LIFECYCLE-001]
+      summary: Accept an independent Ed25519 completion bound to the exact local manifest
+      security: [{ lifecycleAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [set_id, completion]
+              properties:
+                set_id: { type: string }
+                completion: { $ref: '#/components/schemas/BillingSignedCompletion' }
+      responses:
+        '200': { description: Independently verified local catalog entry. }
+        '400': { description: Strict bounded JSON required. }
+        '401': { description: Isolated lifecycle credential required. }
+        '409': { description: 'Unapproved signature key, wrong scope or mismatched immutable manifest.' }
+        '503': { description: Catalog or completion publication unavailable. }
+  /v1/internal/billing-lifecycle/status:
+    servers: [{ url: 'http://127.0.0.1:8081', description: Private lifecycle listener only }]
+    get:
+      operationId: billingBackupWorkerStatus
+      x-rtk-feature-id: FEAT-LOGGER-IMPLEMENTATION-001
+      x-rtk-requirement-ids: [REQ-LOGGER-RAW-LIFECYCLE-001]
+      summary: Read scoped allocation and retirement frontiers and protected snapshot age
+      security: [{ lifecycleAuth: [] }]
+      responses:
+        '200': { description: 'WorkerStatus; protection age is snapshot created_at, not signing verified_at. All receipt frontier values are strings.' }
+        '401': { description: Isolated lifecycle credential required. }
+  /v1/internal/billing-lifecycle/retire/plan:
+    servers: [{ url: 'http://127.0.0.1:8081', description: Private lifecycle listener only }]
+    post:
+      operationId: planBillingRawRetirement
+      x-rtk-feature-id: FEAT-LOGGER-IMPLEMENTATION-001
+      x-rtk-requirement-ids: [REQ-LOGGER-RAW-LIFECYCLE-001]
+      security: [{ lifecycleAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/BillingRetirementPlan' }
+      responses:
+        '200': { description: Durable pending operation or identical terminal state. }
+        '401': { description: Isolated lifecycle credential required. }
+        '409': { description: 'Retirement disabled, wrong floor, unverified archive or trusted age below 90 days.' }
+  /v1/internal/billing-lifecycle/retire/apply:
+    servers: [{ url: 'http://127.0.0.1:8081', description: Private lifecycle listener only }]
+    post:
+      operationId: applyBillingRawRetirement
+      x-rtk-feature-id: FEAT-LOGGER-IMPLEMENTATION-001
+      x-rtk-requirement-ids: [REQ-LOGGER-RAW-LIFECYCLE-001]
+      summary: Require live exact ACTIVE Billing authority before an atomic bounded deletion
+      security: [{ lifecycleAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [operation_id]
+              properties: { operation_id: { type: string } }
+      responses:
+        '200': { description: Immutable completed terminal receipt; completed retries are idempotent. }
+        '401': { description: Isolated lifecycle credential required. }
+        '404': { description: 'Unknown operation; never release a financial fence.' }
+        '409': { description: 'Aborted tombstone, wrong scope or non-ACTIVE live authority.' }
+        '503': { description: Authority or retained storage unavailable. }
+  /v1/internal/billing-lifecycle/retire/abort:
+    servers: [{ url: 'http://127.0.0.1:8081', description: Private lifecycle listener only }]
+    post:
+      operationId: abortBillingRawRetirement
+      x-rtk-feature-id: FEAT-LOGGER-IMPLEMENTATION-001
+      x-rtk-requirement-ids: [REQ-LOGGER-RAW-LIFECYCLE-001]
+      summary: Persist a permanent bound tombstone including for an unknown operation
+      security: [{ lifecycleAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/BillingRetirementPlan' }
+      responses:
+        '200': { description: Immutable aborted or already-completed terminal receipt. }
+        '401': { description: Isolated lifecycle credential required. }
+        '409': { description: Bound plan mismatch or live authority not ABORT_REQUESTED. }
+        '503': { description: Authority or retained storage unavailable. }
+  /v1/internal/billing-lifecycle/retire/{operation_id}:
+    servers: [{ url: 'http://127.0.0.1:8081', description: Private lifecycle listener only }]
+    get:
+      operationId: readBillingRetirementTerminal
+      x-rtk-feature-id: FEAT-LOGGER-IMPLEMENTATION-001
+      x-rtk-requirement-ids: [REQ-LOGGER-RAW-LIFECYCLE-001]
+      summary: Direct authenticated durable terminal receipt used by Billing fence resolution
+      security: [{ lifecycleAuth: [] }, { lifecycleReadAuth: [] }]
+      parameters:
+        - in: path
+          name: operation_id
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Immutable pending/completed/aborted operation state.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BillingRetirementStatus' }
+        '401': { description: Isolated controller or terminal-read credential required. }
+        '404': { description: Unknown operation is not absence of financial risk. }
+        '503': { description: Retained storage unavailable. }
+  /v1/internal/billing-lifecycle/rehydrate:
+    servers: [{ url: 'http://127.0.0.1:8081', description: Private lifecycle listener only }]
+    post:
+      operationId: rehydrateBillingArchiveCache
+      x-rtk-feature-id: FEAT-LOGGER-IMPLEMENTATION-001
+      x-rtk-requirement-ids: [REQ-LOGGER-RAW-LIFECYCLE-001]
+      summary: Install at most 1000 exact original records against signed catalog and durable byte/receipt bindings
+      security: [{ lifecycleAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [set_id, records]
+              properties:
+                set_id: { type: string }
+                records: { type: array, minItems: 1, maxItems: 1000, items: { type: object } }
+      responses:
+        '200': { description: Archive cache populated without changing receipt frontiers. }
+        '401': { description: Isolated lifecycle credential required. }
+        '409': { description: 'Unknown archive, altered original bytes, receipt time or range.' }
+  /v1/internal/billing-lifecycle/cache/evict:
+    servers: [{ url: 'http://127.0.0.1:8081', description: Private lifecycle listener only }]
+    post:
+      operationId: evictBillingArchiveCache
+      x-rtk-feature-id: FEAT-LOGGER-IMPLEMENTATION-001
+      x-rtk-requirement-ids: [REQ-LOGGER-RAW-LIFECYCLE-001]
+      security: [{ lifecycleAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [through_sequence]
+              properties: { through_sequence: { type: string, pattern: '^[0-9]+$' } }
+      responses:
+        '200': { description: At most 1000 cached bodies removed; IDs and cursors unchanged. }
+        '401': { description: Isolated lifecycle credential required. }
+  /v1/internal/billing-lifecycle/compact:
+    servers: [{ url: 'http://127.0.0.1:8081', description: Private lifecycle listener only }]
+    post:
+      operationId: compactBillingInboxOnline
+      x-rtk-feature-id: FEAT-LOGGER-IMPLEMENTATION-001
+      x-rtk-requirement-ids: [REQ-LOGGER-RAW-LIFECYCLE-001]
+      summary: Journalled online generation cutover without Pod stop or HTTP restart
+      security: [{ lifecycleAuth: [] }]
+      requestBody: { $ref: '#/components/requestBodies/EmptyLifecycleRequest' }
+      responses:
+        '200': { description: 'Generation, mutation frontier and measured queued cutover duration. At most one second is a qualification target.' }
+        '401': { description: Isolated lifecycle credential required. }
+        '409': { description: Compaction disabled or migration incomplete. }
+        '503': { description: Candidate aborted or storage/publication unavailable. }
+  /v1/internal/billing-lifecycle/recovery:
+    servers: [{ url: 'http://127.0.0.1:8081', description: Private lifecycle listener only }]
+    get:
+      operationId: readBillingRecoveryState
+      x-rtk-feature-id: FEAT-LOGGER-IMPLEMENTATION-001
+      x-rtk-requirement-ids: [REQ-LOGGER-RAW-LIFECYCLE-001]
+      security: [{ lifecycleAuth: [] }]
+      responses:
+        '200': { description: Restored StoreID/frontier/floor plus operation-history and archive-dependency digests; no external frontier is inferred. }
+        '401': { description: Isolated lifecycle credential required. }
+  /v1/internal/billing-lifecycle/recovery/admit:
+    servers: [{ url: 'http://127.0.0.1:8081', description: Private lifecycle listener only }]
+    post:
+      operationId: admitBillingInboxRecovery
+      x-rtk-feature-id: FEAT-LOGGER-IMPLEMENTATION-001
+      x-rtk-requirement-ids: [REQ-LOGGER-RAW-LIFECYCLE-001]
+      summary: Require an independent recovery custodian signature bound to the exact restored state
+      security: [{ lifecycleAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [recovery_key_id, payload_b64, signature_b64]
+              properties:
+                recovery_key_id: { type: string }
+                payload_b64: { type: string, maxLength: 22000 }
+                signature_b64: { type: string, maxLength: 128 }
+      responses:
+        '200': { description: Durable admission fence cleared without resetting consumer cursors. }
+        '401': { description: Isolated lifecycle credential required. }
+        '409': { description: 'Expired/unapproved recovery role, changed state or unequal external frontier.' }
   /healthz:
     get:
       summary: Health check
@@ -219,6 +491,14 @@ paths:
           $ref: "#/components/responses/InternalServerError"
 components:
   securitySchemes:
+    lifecycleAuth:
+      type: http
+      scheme: bearer
+      description: Isolated internal lifecycle controller token; never the billing-intake or operational credential.
+    lifecycleReadAuth:
+      type: http
+      scheme: bearer
+      description: Read-only terminal operation credential. Only GET retire/{operation_id} is authorized.
     bearerAuth:
       type: http
       scheme: bearer
@@ -409,7 +689,49 @@ components:
           schema:
             type: string
           example: query failed
+  requestBodies:
+    EmptyLifecycleRequest:
+      required: true
+      content:
+        application/json:
+          schema: { type: object, additionalProperties: false }
   schemas:
+    BillingSignedCompletion:
+      type: object
+      additionalProperties: false
+      required: [verifier_key_id, payload_b64, signature_b64]
+      properties:
+        verifier_key_id: { type: string }
+        payload_b64: { type: string, maxLength: 22000 }
+        signature_b64: { type: string, maxLength: 128 }
+    BillingRetirementPlan:
+      type: object
+      additionalProperties: false
+      required: [operation_id, environment, store_id, from_sequence, through_sequence, plan_sha256, set_id]
+      properties:
+        operation_id: { type: string }
+        environment: { type: string }
+        store_id: { type: string, pattern: '^[0-9a-f]{32}$' }
+        from_sequence: { type: string, pattern: '^[1-9][0-9]*$' }
+        through_sequence: { type: string, pattern: '^[1-9][0-9]*$' }
+        plan_sha256: { type: string, pattern: '^[0-9a-f]{64}$' }
+        set_id: { type: string }
+    BillingRetirementStatus:
+      type: object
+      additionalProperties: false
+      required: [operation_id, environment, store_id, from_sequence, through_sequence, plan_sha256, set_id, status, receipt_sha256, completed_at, retired_through]
+      properties:
+        operation_id: { type: string }
+        environment: { type: string }
+        store_id: { type: string, pattern: '^[0-9a-f]{32}$' }
+        from_sequence: { type: string, pattern: '^[1-9][0-9]*$' }
+        through_sequence: { type: string, pattern: '^[1-9][0-9]*$' }
+        plan_sha256: { type: string, pattern: '^[0-9a-f]{64}$' }
+        set_id: { type: string }
+        status: { type: string, enum: [pending, completed, aborted] }
+        receipt_sha256: { type: string, description: SHA-256 of the immutable full status DTO with an empty receipt_sha256 field. }
+        completed_at: { type: string, format: date-time }
+        retired_through: { type: string, pattern: '^[0-9]+$' }
     IngestRequest:
       type: object
       required:

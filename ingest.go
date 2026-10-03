@@ -22,11 +22,13 @@ const (
 )
 
 type IngestConfig struct {
-	Token             string
-	BillingToken      string
-	BillingInbox      *BillingInbox
-	MaxBodyBytes      int64
-	MaxEventsPerBatch int
+	Token              string
+	BillingToken       string
+	BillingInbox       *BillingInbox
+	LifecycleToken     string
+	LifecycleReadToken string
+	MaxBodyBytes       int64
+	MaxEventsPerBatch  int
 }
 
 type IngestRequest struct {
@@ -104,6 +106,14 @@ rtk_cloud_logger_up 1
 			return
 		}
 		response := IngestResponse{Results: make([]IngestResult, 0, len(request.Events))}
+		if billingAuthorized(cfg, authToken) && cfg.BillingInbox.RecoveryFenced() {
+			for _, event := range request.Events {
+				if event.Stream == "billing_usage" || event.Source == "billing_usage" {
+					http.Error(w, "billing inbox recovery admission required", 503)
+					return
+				}
+			}
+		}
 		for _, event := range request.Events {
 			result := IngestResult{EventID: event.EventID}
 			billing := event.Stream == "billing_usage" || event.Source == "billing_usage"
@@ -200,6 +210,12 @@ rtk_cloud_logger_up 1
 			return
 		}
 		if err != nil {
+			if errors.Is(err, ErrBillingArchiveUnavailable) {
+				w.Header().Set("Retry-After", "30")
+				w.Header().Set("X-Billing-Inbox-State", "archive-unavailable")
+				http.Error(w, "billing archive range requires controller rehydration", 503)
+				return
+			}
 			http.Error(w, "billing inbox unavailable", 503)
 			return
 		}

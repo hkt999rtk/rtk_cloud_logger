@@ -10,6 +10,12 @@ redaction policy, and operational runbook.
 Object Storage bucket names, object-key families, ownership, and retention follow the
 workspace [Object Storage policy](https://github.com/hkt999rtk/rtk_cloud_workspace/blob/main/docs/object-storage-policy.md). The link also works from a standalone checkout.
 
+The retained billing inbox has an opt-in [raw-data lifecycle](docs/billing-lifecycle.md):
+online v2 migration, public-only encrypted bounded backups, independent signed
+verification, financial-authority-fenced retirement, archive-aware replay and
+online generation compaction. Backup/retirement/compaction default disabled;
+production protection, storage/latency and recovery objectives require qualification.
+
 ## Defaults
 
 - backend: `go.uber.org/zap`
