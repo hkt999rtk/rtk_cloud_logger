@@ -157,6 +157,26 @@ it and never guesses the newest generation. No old-generation rollback is allowe
 after new commits. The measured queue target is at most one second, not a fsync
 guarantee; actual storage/load/crash qualification remains required.
 
+Each compaction durably marks its private `compact-<generation>` scratch with
+the exact environment, StoreID, anchor and generation before writing plaintext.
+After all snapshot handles close, every normal success, failure or cancellation
+unlinks only `snapshot.db`, its ownership marker and the empty operation directory.
+Cleanup errors are returned and exposed in worker status; they never roll back an
+already-published active generation. The next serialized compaction also removes
+only strictly matching marked interrupted scratch before capacity checks. Backup
+sets, foreign scopes, active generations, symlinks and unexpected files are never
+swept. Legacy unmarked compaction scratch or mismatched contents require explicit
+operator inspection and block further compaction until safely resolved. Unlink is
+not secure erase of a PVC, provider snapshots or other backing-storage copies.
+An exact owned failed shadow is closed and unlinked only before publication was
+attempted. Uncertain manifest publication retains the candidate, fences admission
+and reports the error; plaintext scratch is unlinked but its nonplaintext owner
+marker remains. Restart cleanup requires a valid current active manifest matching
+the live StoreID/path; it never unlinks that active generation. An inactive shadow
+must additionally prove its StoreID and matching compaction/storage generation
+before Close and exact-inode unlink. Partial, locked or unverifiable shadows and
+missing/ambiguous manifests require manual inspection rather than guessed cleanup.
+
 ## Restore admission
 
 Before opening any restored copy, set
