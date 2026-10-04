@@ -16,6 +16,44 @@ import (
 type archiveRoundTrip func(*http.Request) (*http.Response, error)
 
 func (f archiveRoundTrip) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+func TestS3ArchiveStoreRequiresCanonicalDedicatedBucket(t *testing.T) {
+	for _, tc := range []struct {
+		name, environment, region string
+		valid                     bool
+	}{
+		{"dev", "dev", "us-sea", true},
+		{"staging", "staging", "sg-sin-2", true},
+		{"prod", "prod", "us-iad", true},
+		{"other logical environment", "integration", "us-sea", true},
+		{"shared scope", "shared", "us-sea", false},
+		{"empty scope", "", "us-sea", false},
+		{"uppercase scope", "Dev", "us-sea", false},
+		{"underscore scope", "dev_test", "us-sea", false},
+		{"dot scope", "dev.test", "us-sea", false},
+		{"leading scope hyphen", "-dev", "us-sea", false},
+		{"trailing scope hyphen", "dev-", "us-sea", false},
+		{"repeated scope hyphen", "dev--test", "us-sea", false},
+		{"empty region", "dev", "", false},
+		{"uppercase region", "dev", "US-sea", false},
+		{"underscore region", "dev", "us_sea", false},
+		{"dot region", "dev", "us.sea", false},
+		{"leading region hyphen", "dev", "-us-sea", false},
+		{"trailing region hyphen", "dev", "us-sea-", false},
+		{"repeated region hyphen", "dev", "us--sea", false},
+		{"63 character bucket", "dev", strings.Repeat("a", 34), true},
+		{"64 character bucket", "dev", strings.Repeat("a", 35), false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := S3ArchiveConfig{Endpoint: "https://objects.example", Environment: tc.environment, Region: tc.region, SigningRegion: "us-east-1", Bucket: "rtk-cloud-" + tc.environment + "-billing-backup-" + tc.region}
+			_, err := NewS3ArchiveStore(cfg, "writer-access", "writer-secret")
+			if (err == nil) != tc.valid {
+				t.Fatalf("bucket %q: valid=%v, error=%v", cfg.Bucket, tc.valid, err)
+			}
+		})
+	}
+}
+
 func TestS3CreateOnlySignatureAndFullDigestReconciliation(t *testing.T) {
 	store, err := NewS3ArchiveStore(S3ArchiveConfig{Endpoint: "https://objects.example", Region: "us-sea", SigningRegion: "us-east-1", Environment: "staging", Bucket: "rtk-cloud-staging-billing-backup-us-sea"}, "writer-access", "writer-secret")
 	if err != nil {
