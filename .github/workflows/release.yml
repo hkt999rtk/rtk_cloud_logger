@@ -203,6 +203,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push image
+        id: publish_image
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -219,12 +220,16 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p .artifacts/lke-image
+          [[ "${{ steps.publish_image.outputs.digest }}" =~ ^sha256:[a-f0-9]{64}$ ]]
           cat > .artifacts/lke-image/image-manifest.json <<JSON
           {
             "schema": "rtk-service-image/v1",
             "repository": "${GITHUB_REPOSITORY}",
             "image": "${{ steps.image.outputs.image }}",
+            "digest": "${{ steps.publish_image.outputs.digest }}",
             "source_commit": "${GITHUB_SHA}",
+            "run_id": "${GITHUB_RUN_ID}",
+            "run_attempt": "${GITHUB_RUN_ATTEMPT}",
             "primary_tag": "sha-${{ steps.image.outputs.short_sha }}"
           }
           JSON
@@ -234,5 +239,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: image-manifest
+          overwrite: true
           path: .artifacts/lke-image/image-manifest.json
           if-no-files-found: error
