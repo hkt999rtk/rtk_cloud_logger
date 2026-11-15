@@ -1,0 +1,23 @@
+name: Manual dev rollout
+run-name: Dev rollout ${{ inputs.request_id }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      request_id:
+        description: Unique request from the manual rollout script
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  rollout:
+    uses: hkt999rtk/rtk_cloud_workspace/.github/workflows/dev-ci-rollout.yml@main
+    with:
+      repository: ${{ github.repository }}
+    secrets:
+      RTK_DEV_ROLLOUT_KUBECONFIG: ${{ secrets.RTK_DEV_ROLLOUT_KUBECONFIG }}
+      RTK_DEV_ROLLOUT_TARGETS: ${{ secrets.RTK_DEV_ROLLOUT_TARGETS }}
